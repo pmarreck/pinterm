@@ -2,28 +2,16 @@
 
 [![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fpinterm.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)
 
-A top-down pinball game that plays in your terminal. The table is neon, the
+A top-down pinball game that plays in your terminal, and in a web browser. The table is neon, the
 ball stays easy to see, and the sound effects are synthesized live. The game
 logic (physics, scoring, rendering decisions and audio synthesis) is written in
 [Roc](https://www.roc-lang.org/); a small C program handles the terminal, the
 clock and the speaker.
 
-```text
-              ########################                +-----------------------+
-          #####                      #####            | P I N T E R M         |
-       ###                                ###         | SCORE                 |
-  ##         #   P  #   I  #   N  #           ####    | 12,340                |
-  ##           OOOO          OOOO           ##  ##    | BALL 2/3   X2         |
-  ##                  OOOO                  ##  ##    | LANES [P] i  n        |
-  #. T                OOOO                R .#  ##    | TERM  t [E] r  m      |
-  #. E                 oo                 M .#  ##    |                       |
-  ##  ##  %%%                      %%%  ##  ## @##    | COMBO x4              |
-  ##        ###                  ###        ##  ##    |                       |
-  ##             =====    =====             ##  ##    | z / <-    left flip   |
-```
+![pinterm in a browser, rendered by libghostty](docs/screenshot.png)
 
-*(The `--ascii` fallback. By default the table is drawn in color with
-half-block characters at twice this vertical resolution.)*
+*The browser build, captured by the test driver in headless Chromium. The
+terminal build draws the same frames, byte for byte.*
 
 ## Play
 
@@ -35,6 +23,14 @@ With [Nix](https://nixos.org/) (flakes enabled):
 ```
 
 or `nix run github:pmarreck/pinterm`.
+
+### In a browser
+
+`nix build .#web` (or `./build-web`) produces a static site in `result/`
+(or `out/web/`). Serve it with any static file server and open
+`index.html`. Use `?seed=N` for a repeatable game and `?demo` for a
+self-playing attract mode. On touch screens, tap the left or right half for
+the flippers and use two fingers for the plunger.
 
 ### Controls
 
@@ -101,6 +97,7 @@ replay options used by the tests.
 
 | Target | Status |
 |---|---|
+| Web browser (WebAssembly) | built and tested in headless Chromium; identical frames to the terminal build |
 | Linux x86_64 | built and tested (static musl binary) |
 | Linux aarch64 | build script supports it; not yet verified |
 | macOS aarch64 | not yet supported: the pinned Roc compiler's Nix package is marked broken on Darwin |
@@ -120,6 +117,8 @@ src/Table.roc         table geometry shared by physics and rendering
 src/Input.roc         byte/escape-sequence/kitty-protocol decoder
 src/Render.roc        half-block rasterizer, panel, color fallbacks, diff encoder
 src/Audio.roc         chiptune voices and mixer
+web/platform/         browser platform: wasm32 host, boxed state, output buffers
+web/site/             page shell: ghostty-web terminal, keys, Web Audio
 ```
 
 Everything above the C host is a pure function. Each frame, `Loop.frame`
@@ -130,6 +129,24 @@ nearly everything is tested without a terminal.
 The Roc compiler is pinned to upstream revision `1a4df199` through
 `flake.nix`, with a small patch: readonly data that holds pointers is
 emitted as an ELF RELRO section, which the native linker requires.
+
+## The browser build
+
+The browser version is the same game, not a port. The Roc core is compiled
+a second time, for `wasm32`, against a small web platform (`web/platform/`):
+a freestanding C host with a free-list allocator and buffers that JavaScript
+reads and writes. JavaScript keeps the game state between animation frames
+and calls the same `Loop.frame` the terminal build uses.
+[ghostty-web](https://github.com/coder/ghostty-web), Ghostty's terminal
+emulator compiled to WebAssembly, displays the ANSI output. The core's PCM
+plays through Web Audio. Browsers report real key releases, so the page
+sends the same kitty-protocol release sequences a capable terminal would,
+and the flippers follow your fingers exactly.
+
+The test suite replays the same seeded input through the native terminal
+host and through the WebAssembly module under Node.js, and requires
+identical event logs and identical frame bytes. It also loads the built page
+in headless Chromium and plays it with real keyboard events.
 
 ## Tests
 
@@ -147,15 +164,19 @@ emitted as an ELF RELRO section, which the native linker requires.
   same event log from the same seed;
 - PCM capture checks;
 - real pseudo-terminal sessions confirming that terminal state is restored
-  after quit, signals and suspend/resume.
+  after quit, signals and suspend/resume;
+- the browser build: a native-versus-WebAssembly differential replay and a
+  headless Chromium session driven by real keyboard events.
 
 Continuous integration runs on Mechatron Prime CI, a self-hosted Nix build
-service that builds `packages.x86_64-linux.default` and
-`checks.x86_64-linux.test` for every push.
+service that builds `packages.x86_64-linux.default`,
+`packages.x86_64-linux.web` and `checks.x86_64-linux.test` for every push.
 
 The tests check that the game works. Whether it is fun to play and the sound
 is pleasant still takes a human player.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Release packages also include Roc's UPL license.
+MIT. See [LICENSE](LICENSE). The native and web packages also include the
+license of Roc (UPL 1.0, for compiler builtins linked into the game), and the
+web site includes ghostty-web's MIT license.

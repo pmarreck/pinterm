@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Complete pinterm test entry point: Roc core expectations, formatting, the
 # optimized build (only when its inputs changed), CLI surface, headless
-# gameplay replay, PCM capture and real-terminal cleanup.
+# gameplay replay, PCM capture, real-terminal cleanup, and the browser build
+# (differential replay against native, headless Chromium session).
 # Independent suites run in parallel; output is printed in a fixed order.
 # Usage: ./test [--rebuild]   (force the optimized build even if up to date)
 set -u
@@ -40,6 +41,19 @@ build_stale() {
 	# Test-only Roc files are not linked into the binary.
 	[ -n "$(find src platform host nix build flake.nix flake.lock -newer "$PINTERM_BIN" ! -name "test_*.roc" ! -name TestKit.roc -print -quit 2>/dev/null)" ]
 }
+export PINTERM_WEB="${PINTERM_WEB:-$root/out/web}"
+web_stale() {
+	[ "$force_build" = 1 ] && return 0
+	[ -s "$PINTERM_WEB/pinterm.wasm" ] || return 0
+	[ -n "$(find src web build-web nix flake.nix flake.lock -newer "$PINTERM_WEB/pinterm.wasm" ! -name "test_*.roc" ! -name TestKit.roc -print -quit 2>/dev/null)" ]
+}
+web_build_step() {
+	if web_stale; then
+		./build-web --out "$PINTERM_WEB" || return 1
+	else
+		echo "up to date ($(realpath --relative-to="$root" "$PINTERM_WEB"))"
+	fi
+}
 build_step() {
 	if build_stale; then
 		./build || return 1
@@ -58,6 +72,7 @@ roc_fmt() { "$PINTERM_ROC" fmt --check src platform; }
 
 # Phase 1: the build (if needed) overlaps the pure Roc suites.
 job "optimized build" build_step
+job "web build" web_build_step
 roc_names=()
 for f in src/test_*.roc; do
 	name="roc ${f#src/}"
@@ -66,12 +81,12 @@ for f in src/test_*.roc; do
 done
 job "roc formatting" roc_fmt
 wait
-for name in "${roc_names[@]}" "roc formatting" "optimized build"; do report "$name"; done
+for name in "${roc_names[@]}" "roc formatting" "optimized build" "web build"; do report "$name"; done
 
 # Phase 2: suites that exercise the built binary.
-if [[ " ${failed[*]} " != *" optimized build "* ]]; then
+if [[ " ${failed[*]} " != *" optimized build "* && " ${failed[*]} " != *" web build "* ]]; then
 	bin_names=()
-	for t in tests/cli/*_test tests/integration/*_test; do
+	for t in tests/cli/*_test tests/integration/*_test tests/web/*_test; do
 		[ -x "$t" ] || continue
 		bin_names+=("$t")
 		job "$t" "$t"

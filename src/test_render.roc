@@ -88,3 +88,10 @@ expect {
 	text = Str.from_utf8_lossy(Render.encode([], cells, 60, 0))
 	text.contains("\u(1b)[2;1H") and text.contains("\u(1b)[20;1H")
 }
+
+# On wide terminals the table and panel are centered together, not split apart.
+expect {
+	lay = Render.layout(220, 60)
+	gap = lay.px - (lay.ox + lay.tw)
+	gap <= 3 and lay.ox > 10
+}

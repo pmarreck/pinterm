@@ -17,11 +17,17 @@
           inherit pkgs;
           upstream = roc-upstream.packages.${system}.roc;
         };
+        # libghostty compiled to WebAssembly with an xterm.js-style API (MIT).
+        ghosttyWeb = pkgs.fetchzip {
+          url = "https://registry.npmjs.org/ghostty-web/-/ghostty-web-0.4.0.tgz";
+          hash = "sha256-ylBlhpFJaChMnNaSc+R/yvTLiDnjTH9Sz/HBr8CNU3k=";
+        };
         buildTools = [ pkgs.zig_0_16 pkgs.binutils pkgs.bash pkgs.coreutils pkgs.gnused ];
-        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps ];
+        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps pkgs.nodejs pkgs.chromium ];
         rocEnv = {
           PINTERM_ROC = "${rocToolchain}/bin/roc";
           PINTERM_ROC_SOURCE_DIR = "${rocToolchain.src}";
+          PINTERM_GHOSTTY_WEB = "${ghosttyWeb}";
         };
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
@@ -53,11 +59,27 @@
             mainProgram = "pinterm";
           };
         } // rocEnv);
+        # Static browser build: Roc core as WebAssembly + ghostty-web renderer.
+        web = pkgs.stdenvNoCC.mkDerivation ({
+          pname = "pinterm-web";
+          version = "0.1.0";
+          inherit src;
+          nativeBuildInputs = buildTools ++ [ rocToolchain ];
+          buildPhase = ''
+            export HOME=$TMPDIR
+            export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
+            export ROC_CACHE_DIR=$TMPDIR/roc-cache
+            bash ./build-web --out "$PWD/site"
+          '';
+          installPhase = "cp -r site $out";
+          meta.description = "pinterm playable in a web browser";
+        } // rocEnv);
       in
       {
         packages = pkgs.lib.optionalAttrs rocSupported {
           default = pinterm;
           inherit pinterm;
+          inherit web;
           roc = rocToolchain;
         };
 
@@ -72,7 +94,7 @@
               export HOME=$TMPDIR
               export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
               export ROC_CACHE_DIR=$TMPDIR/roc-cache
-              patchShebangs ./build ./test tests bin
+              patchShebangs ./build ./build-web ./test tests bin
               ./test
             '';
             installPhase = "mkdir -p $out && echo passed > $out/result";

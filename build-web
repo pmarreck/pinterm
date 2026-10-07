@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Build the browser version: the same Roc core compiled to WebAssembly with the
+# web platform, plus the static site (ghostty-web renders its ANSI output).
+# Usage: ./build-web [--out DIR]     Output: DIR (default out/web), a static site.
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${PINTERM_ROC:-}" ] || [ -z "${PINTERM_GHOSTTY_WEB:-}" ]; then
+	exec nix develop "$root" -c "$root/build-web" "$@"
+fi
+site="$root/out/web"
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--out) site="$2"; shift 2 ;;
+		-h|--help) sed -n '2,4p' "$0"; exit 0 ;;
+		*) echo "build-web: unknown argument: $1" >&2; exit 2 ;;
+	esac
+done
+jobs="${PINTERM_ROC_JOBS:-4}"
+work="$root/out/web-work"
+# Recompile the wasm core only when a Roc or web-platform input changed;
+# the page assets below are always re-copied.
+wasm_stale() {
+	[ -s "$work/pinterm.wasm" ] || return 0
+	[ -n "$(find "$root/src" "$root/web/platform" "$root/build-web" "$root/flake.lock" \
+		-newer "$work/pinterm.wasm" ! -name 'test_*.roc' ! -name TestKit.roc -print -quit)" ]
+}
+if wasm_stale; then
+	command rm -rf -- "$work"
+	mkdir -p "$work/web/platform/targets/wasm32"
+	cp -r "$root/src" "$work/"
+	cp "$root"/web/platform/*.roc "$root/web/platform/host_web.c" "$work/web/platform/"
+
+	"$PINTERM_ROC" check "$work/src/web_main.roc" --no-cache --jobs="$jobs"
+	"$PINTERM_ROC" glue "$PINTERM_ROC_SOURCE_DIR/src/glue/src/CGlue.roc" \
+		"$work/web/platform" "$work/web/platform/main.roc" --no-cache >/dev/null
+	zig cc -target wasm32-freestanding -O2 -std=c11 -Wall -Wextra -Werror \
+		-c "$work/web/platform/host_web.c" -o "$work/web/platform/targets/wasm32/host.wasm"
+	"$PINTERM_ROC" build "$work/src/web_main.roc" --target=wasm32 --opt=speed \
+		--jobs="$jobs" --no-cache --output="$work/pinterm.wasm"
+else
+	echo "wasm core up to date ($work/pinterm.wasm)" >&2
+fi
+
+command rm -rf -- "$site"
+mkdir -p "$site/vendor" "$site/licenses"
+install -m644 "$root/web/site/index.html" "$root/web/site/app.js" "$root/web/site/pinterm-core.js" "$site/"
+install -m644 "$work/pinterm.wasm" "$site/pinterm.wasm"
+cp "$PINTERM_GHOSTTY_WEB"/dist/*.js "$site/vendor/"
+install -m644 "$PINTERM_GHOSTTY_WEB/dist/ghostty-vt.wasm" "$site/vendor/ghostty-vt.wasm"
+chmod 644 "$site"/vendor/*
+install -m644 "$root/LICENSE" "$site/licenses/pinterm-MIT.txt"
+install -m644 "$PINTERM_GHOSTTY_WEB/LICENSE" "$site/licenses/ghostty-web-MIT.txt"
+install -m644 "$PINTERM_ROC_SOURCE_DIR/LICENSE" "$site/licenses/Roc-UPL.txt"
+cat >"$site/licenses/index.html" <<'HTML'
+<!doctype html><meta charset="utf-8"><title>pinterm licenses</title>
+<style>body{background:#07050e;color:#c9c3e6;font:15px/1.6 ui-monospace,monospace;padding:2em}a{color:#00e5ff}</style>
+<h1>Licenses</h1>
+<ul>
+<li><a href="pinterm-MIT.txt">pinterm</a> (MIT)</li>
+<li><a href="ghostty-web-MIT.txt">ghostty-web</a> (MIT), libghostty terminal emulation compiled to WebAssembly</li>
+<li><a href="Roc-UPL.txt">Roc</a> (UPL 1.0), compiler builtins linked into pinterm.wasm</li>
+</ul>
+HTML
+touch "$site/.nojekyll"
+echo "built web site in $site" >&2

@@ -60,9 +60,11 @@ Render :: [].{
 		s = Physics.clamp(s0, 0.2, 2.5)
 		tw = floor_u64(Table.width * s)
 		th = floor_u64(Table.height * s / 2.0)
-		ox = if avail_cols > tw (avail_cols - tw) / 2 else 0
+		# Center the table (plus the panel beside it, when shown) horizontally.
+		group = if panel tw + 1 + Render.panel_width else tw
+		ox = if cols > group (cols - group) / 2 else 0
 		oy = top + (if avail_rows > th (avail_rows - th) / 2 else 0)
-		{ cols, rows, s, ox, oy, tw, th, pw: tw, ph: th * 2, panel, px: if panel cols - Render.panel_width else 0, ok }
+		{ cols, rows, s, ox, oy, tw, th, pw: tw, ph: th * 2, panel, px: if panel ox + tw + 1 else 0, ok }
 	}
 
 	## Static table raster, recomputed only when the layout changes.

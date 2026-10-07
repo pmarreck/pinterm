@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Browser build: the WebAssembly core must reproduce the native build exactly
+# (same seed and keys -> identical event log and frame bytes), and the real
+# page must run in headless Chromium driven by actual keyboard events.
+set -u
+SUITE=web
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+bin="${PINTERM_BIN:?}"
+site="${PINTERM_WEB:-$root/out/web}"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-web.XXXXXX")"
+
+check "site has index.html" [ -s "$site/index.html" ]
+check "site has the game core" [ -s "$site/pinterm.wasm" ]
+check "site has libghostty renderer" [ -s "$site/vendor/ghostty-vt.wasm" ] && [ -s "$site/vendor/ghostty-web.js" ]
+check "site ships license notices" [ -s "$site/licenses/pinterm-MIT.txt" ] && [ -s "$site/licenses/ghostty-web-MIT.txt" ] && [ -s "$site/licenses/Roc-UPL.txt" ]
+
+# Differential oracle: two independent hosts (C terminal host, JS/wasm host)
+# around the same Roc core must agree byte for byte.
+# Kitty-style input: every plunger and flipper press gets a release, so the
+# core runs in exact-key mode exactly as it does in a browser.
+awk 'BEGIN { print "5 space"; print "6 release-space"; for (f = 30; f < 12000; f++) { if (f % 600 == 0) print f " space"; else if (f % 600 == 40) print f " release-space"; else if (f % 23 == 0) print f " z"; else if (f % 23 == 6) print f " release-z"; else if (f % 29 == 0) print f " /"; else if (f % 29 == 7) print f " release-slash" } }' >"$dir/script"
+for size in 100x40 80x24; do
+	capture timeout 60 "$bin" --headless --size "$size" --frames 12000 --seed 11 --script "$dir/script" --frames-out "$dir/native-frames-$size" --log-out "$dir/native-log-$size"
+	check "native replay at $size" [ "$rc" -eq 0 ]
+	grep '^f=' "$dir/native-log-$size" >"$dir/native-events-$size"
+	capture timeout 60 node "$root/tests/web/replay.mjs" "$site/pinterm.wasm" "$dir/script" 12000 "$size" 11 "$dir/web-frames-$size" "$dir/web-log-$size"
+	check "wasm replay at $size ($err)" [ "$rc" -eq 0 ]
+	check "replay produced gameplay events at $size" grep -q "event drain" "$dir/native-events-$size"
+	check "wasm event log identical to native at $size" cmp -s "$dir/native-events-$size" "$dir/web-log-$size"
+	check "wasm frame bytes identical to native at $size" cmp -s "$dir/native-frames-$size" "$dir/web-frames-$size"
+done
+
+# Real browser, real key events.
+if command -v chromium >/dev/null; then
+	capture timeout 90 node "$root/tests/web/browser.mjs" "$site" check
+	check "browser session ran ($err)" [ "$rc" -eq 0 ]
+	check "start overlay shown before input" grep -q '"overlayBefore":false' <<<"$out"
+	check "space started a game in the browser" grep -q '"started":"f=[0-9]* event start' <<<"$out"
+	check "held plunger launched with measured power" grep -Eq '"launched":"f=[0-9]+ event launch power=([1-9][0-9]?)"' <<<"$out"
+	check "z key flipped the left flipper" grep -q '"flipped":"f=[0-9]* event flip side=left"' <<<"$out"
+	check "Web Audio available" grep -q '"audio":"function"' <<<"$out"
+	check "no page errors" grep -q '"problems":\[\]' <<<"$out"
+else
+	fail "chromium unavailable: browser session not verified"
+fi
+command rm -rf -- "$dir"
+finish
