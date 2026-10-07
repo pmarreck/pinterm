@@ -10,7 +10,8 @@
 - [x] Real pty cleanup tests: quit, SIGTERM, SIGSEGV, SIGABRT, suspend/resume. (2026-10-07 02:05 EDT)
 - [x] Fast ./test: rebuild only when inputs change, parallel per-area Roc suites with compiler cache, parallel integration suites, real quit-key pty test (4.4 min -> 15.5 s when no rebuild is needed). (2026-10-07 09:45 EDT)
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
+- [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)
 - [ ] Native smoke test in a real terminal; record observed results.
-- [ ] Document installation, controls, architecture, verified targets, limitations, and the next fun improvements; dirtree notes.
+- [x] README (install, controls, rules, compatibility, platforms, architecture, tests) and dirtree notes. (2026-10-07 10:15 EDT)
 - [ ] Improve the shared writing-roc skill only with reproduced/version-labeled new lessons and preserve unrelated edits (separate commit, skill-creator, shared-skill tests).
 - [ ] Report completion to the orchestrator via llmsend with exact tests, compiler pin, run commands, limitations and what needs human playtesting.

@@ -1,0 +1,3 @@
+# Mechatron Prime CI targets: one flake attribute per line.
+packages.x86_64-linux.default
+checks.x86_64-linux.test

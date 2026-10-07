@@ -1,7 +1,35 @@
 # Dirtree: Stateful directory trees in the CLI for humans and LLMs. https://github.com/pmarreck/dirtree
 ver=1.2
 annotate=[
+	.mechatron-prime/targets = Mechatron Prime CI flake targets
 	INTENT.md = Roc terminal pinball purpose and playable acceptance criteria
 	PLAN.md = Implementation and verification checklist
-	README.md = Project introduction and future verified usage
+	README.md = Player and developer documentation
+	bin/pinterm = Launcher: runs bin/<os>/<arch>/pinterm, building first if missing
+	build = Optimized build: Roc check/glue, host archive, Roc archive, static musl link, publish bin/linux/<arch>/pinterm
+	flake.nix = Pinned Roc toolchain, pinterm package, checks.test running ./test, devShell
+	host/pinterm.c = C frontend: CLI, raw terminal + restoration, frame pacing, input, audio player pipe, headless replay
+	nix/roc-toolchain.nix = Upstream Roc compiler with RELRO patch and CPU-affinity cap for the build
+	platform/host.c = Roc ABI shim: allocator hooks and hosted functions forwarding to the frontend
+	platform/main.roc = Roc platform header: hosted functions and provided symbols
+	platform/pinterm_host.h = Adapter interface and tick-packet/config layout between shim and frontend
+	src/Audio.roc = Chiptune synthesizer: effect voices, capped pool, soft-clipped 16-bit mixer
+	src/Game.roc = Game state machine: physics substeps, flippers/plunger, scoring, multiball, save, tilt
+	src/Input.roc = Terminal input decoder: bytes, CSI/SS3 arrows, kitty keyboard press/repeat/release
+	src/Loop.roc = Pure per-frame step: packet decode, UI key routing, Game.step, mixing, rendering
+	src/Physics.roc = Vector math and circle-vs-capsule/circle contact with moving-surface impulses
+	src/Render.roc = Half-block rasterizer, overlays, panel/HUD, color fallbacks, diffed ANSI encoder
+	src/Table.roc = Table geometry: walls, arch, gate, bumpers, slings, lanes, targets, saucer, flippers
+	src/TestKit.roc = Shared helpers for Roc expectation suites
+	src/main.roc = Effectful shell: loops Host.tick! -> Loop.frame -> present/audio/log
+	src/test_game.roc = Physics, table and game-flow expectations
+	src/test_input.roc = Input decoder expectations (byte-set classifier, CSI, kitty)
+	src/test_loop.roc = Audio synthesis and per-frame loop expectations
+	src/test_render.roc = Layout, composition, fallback and diff-encoding expectations
+	test = Complete test entry: parallel Roc suites, fmt, build-if-stale, parallel CLI/integration suites
+	tests/cli/cli_test = CLI option and error-path checks
+	tests/cli/launcher_test = bin/pinterm launcher checks
+	tests/integration/audio_test = PCM capture length/loudness and mute
+	tests/integration/replay_test = Headless scripted replays to game over; determinism; kitty releases; ASCII sizes
+	tests/integration/terminal_test = Real pty cleanup after quit, signals and suspend/resume
 ]

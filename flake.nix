@@ -8,7 +8,8 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, roc-upstream }:
-    flake-utils.lib.eachDefaultSystem (system:
+    # Explicit systems: nixpkgs no longer evaluates x86_64-darwin.
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         rocSupported = nixpkgs.lib.hasSuffix "-linux" system;
@@ -71,7 +72,7 @@
               export HOME=$TMPDIR
               export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
               export ROC_CACHE_DIR=$TMPDIR/roc-cache
-              patchShebangs ./build ./test tests
+              patchShebangs ./build ./test tests bin
               ./test
             '';
             installPhase = "mkdir -p $out && echo passed > $out/result";

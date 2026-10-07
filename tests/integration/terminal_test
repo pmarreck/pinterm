@@ -47,7 +47,7 @@ run_case() { # run_case mode expected_rc
 	local mode="$1" want="$2" log="$dir/$1.out"
 	command rm -f -- "$dir/rc" "$dir/note" "$dir/before" "$dir/after" "$dir/while_stopped" "$dir/ready" "$dir/keys"
 	mkfifo "$dir/keys"
-	timeout 30 script -qec "'$dir/driver' '$bin' $mode '$dir'" "$log" >/dev/null 2>&1 <"$dir/keys" &
+	timeout 30 script -qec "bash '$dir/driver' '$bin' $mode '$dir'" "$log" >/dev/null 2>&1 <"$dir/keys" &
 	local spid=$!
 	exec 3>"$dir/keys"
 	if [ "$mode" = quitkey ]; then
