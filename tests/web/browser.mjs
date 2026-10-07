@@ -1,7 +1,7 @@
 // Headless-Chromium driver over the DevTools protocol (no npm dependencies):
 // loads the built site, records console output and exceptions, sends real
 // keyboard events, evaluates page state and captures screenshots.
-// Usage: node browser.mjs SITE_DIR COMMAND...
+// Usage: node browser.mjs SITE_DIR_OR_URL COMMAND...
 //   check            play a scripted session; print JSON evidence
 //   shot OUT.png     capture a demo-mode screenshot after gameplay
 import { spawn } from "node:child_process";
@@ -73,8 +73,10 @@ async function launch() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const server = await serve(siteDir);
-const base = `http://127.0.0.1:${server.address().port}/`;
+// SITE_DIR may also be a deployed URL (for verifying the live site).
+const remote = /^https?:\/\//.test(siteDir);
+const server = remote ? null : await serve(siteDir);
+const base = remote ? siteDir.replace(/\/?$/, "/") : `http://127.0.0.1:${server.address().port}/`;
 const b = await launch();
 const { send, events } = b;
 const evalPage = async (expr) => (await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
@@ -141,5 +143,5 @@ try {
 	}
 } finally {
 	b.close();
-	server.close();
+	server?.close();
 }
