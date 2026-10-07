@@ -64,6 +64,7 @@ Game :: [].{
 		combo : I64,
 		combo_until : F64,
 		save_until : F64,
+		save_spent : Bool,
 		tilt : F64,
 		tilted : Bool,
 		bumper_flash : List(F64),
@@ -126,6 +127,7 @@ Game :: [].{
 		combo: 0,
 		combo_until: 0.0,
 		save_until: 0.0,
+		save_spent: Bool.False,
 		tilt: 0.0,
 		tilted: Bool.False,
 		bumper_flash: [0.0, 0.0, 0.0],
@@ -379,7 +381,11 @@ flip_press = |g, side| {
 			Left => rotate_left(g1.lanes_lit)
 			Right => rotate_right(g1.lanes_lit)
 		}
-		emit({ ..g1, lanes_lit: rotated, skill_lane: rotate_index(g1.skill_lane, side) }, Flip)
+		side_name = match side {
+			Left => "left"
+			Right => "right"
+		}
+		note(emit({ ..g1, lanes_lit: rotated, skill_lane: rotate_index(g1.skill_lane, side) }, Flip), "event flip side=${side_name}")
 	} else {
 		g1
 	}
@@ -419,7 +425,7 @@ nudge = |g| {
 
 start_game : State -> State
 start_game = |g| {
-	fresh = Game.new(g.rng)
+	fresh = { ..Game.new(g.rng), frame: g.frame }
 	(u, g1) = rand({ ..fresh, high: g.high, exact_keys: g.exact_keys, rng: g.rng })
 	lane = if u < 0.34 0 else if u < 0.67 1 else 2
 	g2 = {
@@ -453,6 +459,7 @@ next_ball = |g| {
 			on_plunger: Bool.True,
 			balls: [],
 			tilt: 0.0,
+			save_spent: Bool.False,
 			tilted: Bool.False,
 			mult: 1,
 			bumpers_hit: 0,
@@ -470,7 +477,7 @@ next_ball = |g| {
 ball_lost : State -> State
 ball_lost = |g| {
 	if g.time < g.save_until and !g.tilted {
-		saved = { ..g, on_plunger: Bool.True, save_until: 0.0, multiball: Bool.False }
+		saved = { ..g, on_plunger: Bool.True, save_until: 0.0, save_spent: Bool.True, multiball: Bool.False }
 		note(emit(announce(saved, "BALL SAVED", 2.0), Saved), "event saved ball=${g.ball_number.to_str()}")
 	} else {
 		bonus = if g.tilted 0 else (g.bumpers_hit * 20 + g.targets_hit * 150 + g.lanes_hit * 100 + 500) * g.mult
@@ -497,7 +504,7 @@ launch = |g| {
 	(u, g1) = rand(g)
 	speed = (78.0 + 66.0 * power2) * (0.985 + 0.03 * u)
 	ball = { pos: Table.plunger_rest, vel: { x: 0.0, y: -speed }, r: Table.ball_radius }
-	save = if g1.save_until > g1.time g1.save_until else g1.time + ball_save_time
+	save = if g1.save_until > g1.time g1.save_until else if g1.save_spent 0.0 else g1.time + ball_save_time
 	g2 = { ..g1, balls: g1.balls.append(ball), on_plunger: Bool.False, pulling: Bool.False, pull: 0.0, save_until: save }
 	note(emit(g2, Launch(power2)), "event launch power=${int_str(power2 * 100.0)}")
 }

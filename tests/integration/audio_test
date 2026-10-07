@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Synthesized PCM through the real adapter: launch/flip/drain produce audible,
+# correctly sized s16le output; --mute produces none.
+set -u
+SUITE=audio
+. "$(dirname "$0")/../lib/harness.sh"
+bin="${PINTERM_BIN:?}"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-audio.XXXXXX")"
+printf '5 space\n30 space\n120 z\n140 /\n' >"$dir/script"
+
+capture timeout 20 "$bin" --headless --frames 600 --fps 60 --script "$dir/script" --audio-out "$dir/pcm"
+check "audio run exits cleanly" [ "$rc" -eq 0 ]
+bytes=$(stat -c %s "$dir/pcm" 2>/dev/null || echo 0)
+# 600 frames at 60 fps = 10 s of 22050 Hz mono 16-bit = 441000 bytes (+-1 sample).
+check "pcm length matches elapsed time ($bytes)" [ "$bytes" -ge 440996 ] && [ "$bytes" -le 441000 ]
+peak() { od -An -v -td2 -w2 "$1" | awk '{ v = $1 < 0 ? -$1 : $1; if (v > m) m = v } END { print m + 0 }'; }
+p=$(peak "$dir/pcm")
+check "pcm is audible (peak $p)" [ "$p" -gt 2000 ]
+check "pcm never clips hard (peak $p)" [ "$p" -lt 32001 ]
+
+capture timeout 20 "$bin" --headless --frames 120 --script "$dir/script" --audio-out "$dir/muted" --mute
+check "muted run exits cleanly" [ "$rc" -eq 0 ]
+check "mute writes no audio" [ ! -s "$dir/muted" ]
+command rm -rf -- "$dir"
+finish

@@ -54,6 +54,7 @@ static struct {
 	const char *frames_out;
 	const char *log_out;
 	const char *audio_out;
+	bool full_frames;
 } opt = {.color = -1, .sound = -1, .fps = DEFAULT_FPS};
 
 static struct {
@@ -190,13 +191,10 @@ static void install_signals(void) {
 static void suspend_self(void) {
 	terminal_restore();
 	audio_close();
-	signal(SIGTSTP, SIG_DFL);
-	raise(SIGTSTP);
+	/* SIGSTOP rather than SIGTSTP: POSIX discards default-stop TSTP in
+	 * orphaned process groups, which would leave the game un-suspended. */
+	raise(SIGSTOP);
 	/* Resumed by SIGCONT. */
-	struct sigaction sa = {0};
-	sigemptyset(&sa.sa_mask);
-	sa.sa_handler = on_tstp;
-	sigaction(SIGTSTP, &sa, NULL);
 	if (terminal_enter() != 0) quit_requested = 1;
 	resized = 1;
 	clock_gettime(CLOCK_MONOTONIC, &st.deadline);
@@ -333,7 +331,8 @@ size_t pt_tick(uint8_t *packet, size_t capacity) {
 	uint64_t frame_us = 1000000u / (unsigned)opt.fps;
 	st.frame++;
 	if (opt.headless) {
-		st.now_us += frame_us;
+		/* Exact frame clock: no accumulated rounding of 1e6/fps. */
+		st.now_us = st.frame * 1000000u / (unsigned)opt.fps;
 		while (st.script_next < st.script_count && st.script[st.script_next].frame <= st.frame) {
 			ScriptEvent *e = &st.script[st.script_next++];
 			if (n + e->length <= capacity) {
@@ -341,6 +340,7 @@ size_t pt_tick(uint8_t *packet, size_t capacity) {
 				n += e->length;
 			}
 		}
+		if (opt.full_frames) resized = 1;
 		if (opt.max_frames && st.frame >= opt.max_frames) flags |= PT_FLAG_QUIT;
 	} else {
 		if (stop_requested) {
@@ -487,7 +487,7 @@ static void usage(FILE *out) {
 		"      --frames-out FILE  write rendered frames (- or @stdout, @stderr)\n"
 		"      --log-out FILE     write structured game events (- or @stdout, @stderr)\n"
 		"      --audio-out FILE   write raw s16le 22050 Hz mono PCM instead of playing\n"
-		"\n"
+		"      --full-frames      redraw every frame completely (viewable dumps)\n"		"\n"
 		"Environment: PINTERM_MUTE=1 disables sound. Sound is off by default over SSH.\n",
 		out);
 }
@@ -581,6 +581,8 @@ static void parse_args(int argc, char **argv) {
 			opt.fps = (int)n;
 		} else if (!strcmp(a, "--headless")) {
 			opt.headless = true;
+		} else if (!strcmp(a, "--full-frames")) {
+			opt.full_frames = true;
 		} else if ((v = opt_value(argc, argv, &i, "--size"))) {
 			int c, r;
 			char x;

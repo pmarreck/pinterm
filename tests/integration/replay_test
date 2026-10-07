@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Bounded headless replays: a scripted session must launch, flip, score, drain
+# all three balls, reach game over and restart, deterministically and quickly.
+set -u
+SUITE=replay
+. "$(dirname "$0")/../lib/harness.sh"
+bin="${PINTERM_BIN:?}"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-replay.XXXXXX")"
+script="$dir/session"
+# Start, then press the plunger every 10 s and alternate flippers.
+awk 'BEGIN { print "5 space"; for (f = 30; f < 30000; f++) { if (f % 600 == 0) print f " space"; else if (f % 23 == 0) print f " z"; else if (f % 29 == 0) print f " /" } }' >"$script"
+
+capture timeout 60 "$bin" --headless --size 100x40 --frames 30000 --seed 7 --script "$script" --log-out "$dir/log"
+check "replay exits cleanly" [ "$rc" -eq 0 ]
+log="$(cat "$dir/log")"
+check "game started" grep -q "event start" <<<"$log"
+check "ball launched" grep -q "event launch" <<<"$log"
+check "flippers reacted" grep -q "event flip side=left" <<<"$log"
+check "right flipper reacted" grep -q "event flip side=right" <<<"$log"
+check "ball drained with bonus" grep -Eq "event drain ball=1 bonus=[0-9]+ score=[1-9]" <<<"$log"
+check "second ball served" grep -q "event ball ball=2" <<<"$log"
+check "game over reached" grep -Eq "event game_over score=[1-9][0-9]* high=[1-9]" <<<"$log"
+check "new game started after game over" [ "$(grep -c "event start" <<<"$log")" -ge 2 ]
+check "exit summary logged" grep -Eq "^event exit frames=30000 score=[0-9]+ high=[1-9]" <<<"$log"
+check "no runtime crash output" [ -z "$err" ]
+
+# Determinism: the same seed and script reproduce the same event log.
+capture timeout 60 "$bin" --headless --size 100x40 --frames 30000 --seed 7 --script "$script" --log-out "$dir/log2"
+check "replay is deterministic" cmp -s "$dir/log" "$dir/log2"
+
+# Scores never decrease within a game and game over follows the third drain.
+scores_ok() {
+	awk '/event (drain|ball |game_over)/ { for (i = 1; i <= NF; i++) if ($i ~ /^score=/) { s = substr($i, 7) + 0; if (s < last && $0 !~ /event start/) bad = 1; last = s } } /event start/ { last = 0 } END { exit bad }' "$dir/log"
+}
+check "scores monotonic within games" scores_ok
+third_then_over() {
+	awk '/event drain ball=3/ { d = NR } /event game_over/ { if (d && NR > d) ok = 1 } END { exit !ok }' "$dir/log"
+}
+check "game over follows third drain" third_then_over
+
+# Enhanced keyboards: scripted kitty release events are honored.
+printf '5 space\n40 space\n60 release-space\n300 z\n310 release-z\n320 q\n' >"$dir/kitty"
+capture timeout 20 "$bin" --headless --size 100x40 --script "$dir/kitty" --log-out "$dir/klog"
+check "kitty-mode session quits on q" [ "$rc" -eq 0 ]
+check "kitty-mode exact launch power" grep -Eq "event launch power=([0-9]|[1-3][0-9])$" "$dir/klog"
+
+# Every frame dump at several sizes renders without error, including ASCII.
+for size in 80x24 120x40 50x30 36x14; do
+	capture timeout 20 "$bin" --headless --size "$size" --frames 200 --script "$script" --frames-out "$dir/frames-$size" --ascii
+	check "ascii render at $size" [ "$rc" -eq 0 ]
+	check "ascii output is 7-bit at $size" bash -c '! LC_ALL=C grep -q "[^[:print:][:space:]$(printf "\033")]" "$1"' _ "$dir/frames-$size"
+done
+command rm -rf -- "$dir"
+finish

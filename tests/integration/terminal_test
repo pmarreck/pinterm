@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Real pseudo-terminal sessions: the adapter must restore termios, cursor and
+# the main screen after normal quit, SIGTERM, suspend/resume and fatal signals.
+set -u
+SUITE=terminal
+. "$(dirname "$0")/../lib/harness.sh"
+bin="${PINTERM_BIN:?}"
+if ! command -v script >/dev/null; then
+	fail "util-linux script(1) unavailable; cannot test terminal cleanup"
+	finish; exit 1
+fi
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-tty.XXXXXX")"
+
+# Inner driver runs inside the pty. It records stty state before/after and the
+# exit status; waits poll for observable state changes with a bounded budget.
+cat >"$dir/driver" <<'DRIVER'
+#!/usr/bin/env bash
+bin="$1"; mode="$2"; dir="$3"
+stty -g >"$dir/before"
+wait_for() { local n=0; while ! eval "$1"; do n=$((n + 1)); [ $n -gt 500 ] && return 1; sleep 0.01; done; }
+raw() { [ "$(stty -g)" != "$(cat "$dir/before")" ]; }
+case "$mode" in
+	frames) "$bin" --mute --frames 20 </dev/null; echo $? >"$dir/rc" ;;
+	quitkey) printf 'q' | "$bin" --mute --frames 600; echo $? >"$dir/rc" ;;
+	term|segv|abrt)
+		"$bin" --mute --frames 100000 </dev/null & pid=$!
+		wait_for raw || echo noraw >"$dir/note"
+		kill -"${mode^^}" "$pid"; wait "$pid"; echo $? >"$dir/rc" ;;
+	suspend)
+		"$bin" --mute --frames 100000 </dev/null & pid=$!
+		wait_for raw || echo noraw >"$dir/note"
+		kill -TSTP "$pid"
+		wait_for "ps -o stat= -p $pid | grep -q T" || echo nostop >>"$dir/note"
+		stty -g >"$dir/while_stopped"
+		kill -CONT "$pid"
+		wait_for raw || echo noresume >>"$dir/note"
+		kill -TERM "$pid"; wait "$pid"; echo $? >"$dir/rc" ;;
+esac
+stty -g >"$dir/after"
+DRIVER
+chmod +x "$dir/driver"
+
+run_case() { # run_case mode expected_rc
+	local mode="$1" want="$2" log="$dir/$1.out"
+	command rm -f -- "$dir/rc" "$dir/note" "$dir/before" "$dir/after" "$dir/while_stopped"
+	timeout 30 script -qec "'$dir/driver' '$bin' $mode '$dir'" "$log" >/dev/null 2>&1 </dev/null
+	check "$mode: exit status $(cat "$dir/rc" 2>/dev/null) == $want" [ "$(cat "$dir/rc" 2>/dev/null)" = "$want" ]
+	check "$mode: no driver anomalies ($(cat "$dir/note" 2>/dev/null))" [ ! -s "$dir/note" ]
+	check "$mode: termios restored" cmp -s "$dir/before" "$dir/after"
+	check "$mode: left alternate screen" grep -q $'\033\[?1049l' "$log"
+	check "$mode: cursor shown again" grep -q $'\033\[?25h' "$log"
+	check "$mode: kitty keyboard mode popped" grep -q $'\033\[<u' "$log"
+}
+run_case frames 0
+run_case quitkey 0
+run_case term 0
+run_case segv 139
+run_case abrt 134
+run_case suspend 0
+check "suspend: terminal restored while stopped" cmp -s "$dir/before" "$dir/while_stopped"
+command rm -rf -- "$dir"
+finish
