@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Build the optimized native pinterm game: Roc core archive + C terminal/audio host.
+# Usage: ./build [--out DIR] [--debug] [--check-only]
+# Outputs: DIR/release/bin/pinterm (or DIR/debug/bin/pinterm with --debug).
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -z "${PINTERM_ROC:-}" ]; then
+	exec nix develop "$root" -c "$root/build" "$@"
+fi
+
+out="$root/out"
+profile=release
+check_only=0
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--out) out="$2"; shift 2 ;;
+		--debug) profile=debug; shift ;;
+		--test) shift ;; # tests use the same optimized artifact
+		--check-only) check_only=1; shift ;;
+		-h|--help) sed -n '2,4p' "$0"; exit 0 ;;
+		*) echo "build: unknown argument: $1" >&2; exit 2 ;;
+	esac
+done
+
+case "$(uname -s)/$(uname -m)" in
+	Linux/x86_64) roc_target=x64v1glibc; zig_target=x86_64-linux-musl ;;
+	Linux/aarch64) roc_target=arm64glibc; zig_target=aarch64-linux-musl ;;
+	*) echo "build: native Roc packaging is verified on Linux x86_64/aarch64 only" >&2; exit 1 ;;
+esac
+
+# The Roc compiler spawns one worker per CPU unless bounded; keep it modest.
+jobs="${PINTERM_ROC_JOBS:-4}"
+mkdir -p "$out"
+out="$(cd "$out" && pwd)"
+work="$out/work"
+mkdir -p "$work/platform/targets/$roc_target" "$work/src" "$out/$profile/bin"
+cp "$root"/platform/*.roc "$root/platform/host.c" "$root/platform/pinterm_host.h" "$work/platform/"
+cp "$root"/src/*.roc "$work/src/"
+
+"$PINTERM_ROC" check "$work/src/main.roc" --no-cache --jobs="$jobs"
+[ "$check_only" = 1 ] && exit 0
+
+"$PINTERM_ROC" glue "$PINTERM_ROC_SOURCE_DIR/src/glue/src/CGlue.roc" \
+	"$work/platform" "$work/platform/main.roc" --no-cache >/dev/null
+
+if [ "$profile" = debug ]; then
+	copt="-O0 -g -DPINTERM_DEBUG_BUILD=1"; ropt="--opt=dev"
+else
+	copt="-O2"; ropt="--opt=speed"
+fi
+warn="-Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE"
+
+case "$roc_target" in
+	x64v1glibc) host_cc_target=x86_64-linux-gnu ;;
+	arm64glibc) host_cc_target=aarch64-linux-gnu ;;
+esac
+# shellcheck disable=SC2086
+zig cc -target "$host_cc_target" -mcpu=baseline $warn $copt -fPIC -fvisibility=hidden \
+	-c "$work/platform/host.c" -o "$work/platform/host.o"
+ar rcs "$work/platform/targets/$roc_target/libhost.a" "$work/platform/host.o"
+"$PINTERM_ROC" build "$work/src/main.roc" $ropt --target="$roc_target" \
+	--jobs="$jobs" --no-cache --output="$work/libpinterm.a"
+
+# shellcheck disable=SC2086
+zig cc -target "$zig_target" -mcpu=baseline $warn $copt -static \
+	-I"$work/platform" -I"$root/host" \
+	"$root"/host/*.c "$work/libpinterm.a" -lm -o "$out/$profile/bin/pinterm"
+echo "built $out/$profile/bin/pinterm" >&2

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Complete pinterm test entry point: Roc core expectations, optimized build,
+# CLI surface, headless gameplay replay and real-terminal cleanup.
+set -u
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${PINTERM_ROC:-}" ]; then
+	exec nix develop "$root" -c "$root/test" "$@"
+fi
+cd "$root" || exit 1
+export MUTE_DEBUG_STATUS=1 PINTERM_MUTE=1
+export PINTERM_BIN="${PINTERM_BIN:-$root/out/release/bin/pinterm}"
+failed=()
+step() { # step name command...
+	local name="$1"; shift
+	printf '\033[36m==>\033[0m %s\n' "$name"
+	if ! "$@"; then failed+=("$name"); fi
+}
+roc_core() {
+	local w="${TMPDIR:-/tmp}/pinterm-roc-test.$$" out rc
+	mkdir -p "$w/src" && cp src/*.roc "$w/src/" && cp -r platform "$w/platform"
+	out="$("$PINTERM_ROC" test "$w/src/test.roc" --no-cache --jobs="${PINTERM_ROC_JOBS:-4}" 2>&1)"
+	rc=$?
+	command rm -rf -- "$w"
+	printf '%s\n' "$out" | tail -n 3
+	return $rc
+}
+roc_fmt() { "$PINTERM_ROC" fmt --check src platform >/dev/null 2>&1 || { "$PINTERM_ROC" fmt --check src platform; return 1; }; }
+build_quiet() {
+	local log rc
+	log="$(./build 2>&1)"; rc=$?
+	[ $rc -eq 0 ] || printf '%s\n' "$log"
+	return $rc
+}
+
+step "roc core expectations" roc_core
+step "roc formatting" roc_fmt
+step "optimized build" build_quiet
+for t in tests/cli/*_test tests/integration/*_test; do
+	[ -x "$t" ] || continue
+	step "$t" "$t"
+done
+
+if [ ${#failed[@]} -gt 0 ]; then
+	printf '\033[31mFAILED:\033[0m %s\n' "${failed[@]}"
+	exit 1
+fi
+printf '\033[32mall pinterm tests passed\033[0m\n'

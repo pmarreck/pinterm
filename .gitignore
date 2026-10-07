@@ -1,0 +1,8 @@
+inbox/
+.agent-work/
+.demo-work/
+result
+result-*
+zig-out/
+.zig-cache/
+out/

@@ -1,0 +1,7 @@
+# Dirtree: Stateful directory trees in the CLI for humans and LLMs. https://github.com/pmarreck/dirtree
+ver=1.2
+annotate=[
+	INTENT.md = Roc terminal pinball purpose and playable acceptance criteria
+	PLAN.md = Implementation and verification checklist
+	README.md = Project introduction and future verified usage
+]

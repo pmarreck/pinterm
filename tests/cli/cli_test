@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# CLI surface: help/about, option validation, headless-only flags.
+set -u
+SUITE=cli
+. "$(dirname "$0")/../lib/harness.sh"
+bin="${PINTERM_BIN:?}"
+
+capture "$bin" --help
+check "--help exits 0" [ "$rc" -eq 0 ]
+check "--help lists flipper controls" grep -q "left flipper" <<<"$out"
+check "--help lists headless replay" grep -q -- "--headless" <<<"$out"
+capture "$bin" -h
+check "-h matches --help" grep -q "Usage: pinterm" <<<"$out"
+
+capture "$bin" --about
+check "--about one line" [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ]
+check "--about names platform" grep -Eq "linux (x86_64|aarch64)" <<<"$out"
+
+capture "$bin" --bogus
+check "unknown option exits 2" [ "$rc" -eq 2 ]
+check "unknown option explains" grep -q "unknown option" <<<"$err"
+
+capture "$bin" --fps 5
+check "fps range validated" [ "$rc" -eq 2 ]
+capture "$bin" --colors purple
+check "color mode validated" [ "$rc" -eq 2 ]
+capture "$bin" --headless --size 10x2
+check "headless size validated" [ "$rc" -eq 2 ]
+capture "$bin" --script foo
+check "script requires headless" [ "$rc" -eq 2 ]
+
+capture "$bin" --mute </dev/null
+check "non-tty stdout refused" [ "$rc" -eq 1 ]
+check "non-tty refusal explains" grep -q "not a terminal" <<<"$err"
+
+# Paths with spaces and later-wins option ordering.
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm cli.XXXXXX")"
+printf '5 q\n' >"$dir/my script"
+capture "$bin" --headless --fps 30 --fps=60 --frames 50 --script "$dir/my script" --log-out "$dir/log file"
+check "script path with spaces accepted" [ "$rc" -eq 0 ]
+check "log path with spaces written" [ -s "$dir/log file" ]
+printf '1 nope\n' >"$dir/bad"
+capture "$bin" --headless --script "$dir/bad"
+check "bad script key rejected" [ "$rc" -eq 2 ]
+check "bad script explains" grep -q "unknown key" <<<"$err"
+capture bash -c 'printf "5 q\n" | "$1" --headless --frames 50 --script @stdin --log-out @stdout' _ "$bin"
+check "script from @stdin" [ "$rc" -eq 0 ]
+command rm -rf -- "$dir"
+finish
