@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Publish the browser build to GitHub Pages via the gh-pages branch.
+# Builds .#web with Nix (unless --site is given), commits the site as the
+# branch's whole tree using a temporary index (the checkout is never touched),
+# and pushes. Rerunning with an unchanged site is a no-op.
+# Usage: ./deploy-web [--site DIR] [--repo PATH] [--branch NAME] [--remote NAME] [--no-push]
+set -euo pipefail
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+site="" repo="$root" branch="gh-pages" remote="origin" push=1
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--site) site="$2"; shift 2 ;;
+		--repo) repo="$2"; shift 2 ;;
+		--branch) branch="$2"; shift 2 ;;
+		--remote) remote="$2"; shift 2 ;;
+		--no-push) push=0; shift ;;
+		-h|--help) sed -n '2,6p' "$0"; exit 0 ;;
+		*) echo "deploy-web: unknown argument: $1" >&2; exit 2 ;;
+	esac
+done
+git=(git -C "$repo")
+source_rev="$("${git[@]}" rev-parse HEAD)"
+
+if [ -z "$site" ]; then
+	# Only publish what is already public: a clean tree whose HEAD is on the remote.
+	if [ -n "$("${git[@]}" status --porcelain)" ]; then
+		echo "deploy-web: working tree is not clean; commit first" >&2; exit 1
+	fi
+	"${git[@]}" fetch -q "$remote" yolo
+	if [ "$source_rev" != "$("${git[@]}" rev-parse "$remote/yolo")" ]; then
+		echo "deploy-web: HEAD is not $remote/yolo; push the source first" >&2; exit 1
+	fi
+	site="$(nix build "$root#web" --no-link --print-out-paths)"
+fi
+[ -d "$site" ] && [ -s "$site/index.html" ] || { echo "deploy-web: no site at $site" >&2; exit 1; }
+
+index="$(mktemp "${TMPDIR:-/tmp}/pinterm-pages-index.XXXXXX")"
+trap 'command rm -f -- "$index"' EXIT
+export GIT_INDEX_FILE="$index"
+"${git[@]}" read-tree --empty
+"${git[@]}" --work-tree="$site" add -A -f .
+tree="$("${git[@]}" write-tree)"
+unset GIT_INDEX_FILE
+
+parent=""
+if "${git[@]}" rev-parse -q --verify "refs/heads/$branch" >/dev/null; then
+	parent="$("${git[@]}" rev-parse "refs/heads/$branch")"
+elif [ "$push" = 1 ] && "${git[@]}" fetch -q "$remote" "$branch" 2>/dev/null; then
+	parent="$("${git[@]}" rev-parse FETCH_HEAD)"
+fi
+if [ -n "$parent" ] && [ "$("${git[@]}" rev-parse "$parent^{tree}")" = "$tree" ]; then
+	echo "deploy-web: site unchanged since $parent; nothing to publish" >&2
+else
+	commit="$("${git[@]}" commit-tree "$tree" ${parent:+-p "$parent"} -m "Publish web build of $source_rev")"
+	"${git[@]}" update-ref "refs/heads/$branch" "$commit"
+	echo "deploy-web: $branch -> $commit (source $source_rev)" >&2
+fi
+if [ "$push" = 1 ]; then
+	"${git[@]}" push -q "$remote" "refs/heads/$branch:refs/heads/$branch"
+	echo "deploy-web: pushed $branch to $remote" >&2
+fi

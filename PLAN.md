@@ -10,7 +10,7 @@
 - [x] Real pty cleanup tests: quit, SIGTERM, SIGSEGV, SIGABRT, suspend/resume. (2026-10-07 02:05 EDT)
 - [x] Fast ./test: rebuild only when inputs change, parallel per-area Roc suites with compiler cache, parallel integration suites, real quit-key pty test (4.4 min -> 15.5 s when no rebuild is needed). (2026-10-07 09:45 EDT)
 - [x] Web build: Roc core as wasm32 + ghostty-web + Web Audio, Nix output .#web, differential and headless-browser tests, README screenshot. (2026-10-07 16:55 EDT)
-- [ ] GitHub Pages deployment (awaiting choice: local gh-pages deploy script vs Actions workflow).
+- [ ] GitHub Pages: deploy-web script (local, gh-pages branch, no Actions) + first publish + Pages enabled + live check.
 - [ ] Faint seams between cell rows in ghostty-web canvas rendering; investigate font size/metrics.
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)

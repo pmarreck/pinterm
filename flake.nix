@@ -23,7 +23,7 @@
           hash = "sha256-ylBlhpFJaChMnNaSc+R/yvTLiDnjTH9Sz/HBr8CNU3k=";
         };
         buildTools = [ pkgs.zig_0_16 pkgs.binutils pkgs.bash pkgs.coreutils pkgs.gnused ];
-        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps pkgs.nodejs pkgs.chromium ];
+        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps pkgs.nodejs pkgs.chromium pkgs.git ];
         rocEnv = {
           PINTERM_ROC = "${rocToolchain}/bin/roc";
           PINTERM_ROC_SOURCE_DIR = "${rocToolchain.src}";
@@ -94,7 +94,7 @@
               export HOME=$TMPDIR
               export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
               export ROC_CACHE_DIR=$TMPDIR/roc-cache
-              patchShebangs ./build ./build-web ./test tests bin
+              patchShebangs ./build ./build-web ./deploy-web ./test tests bin
               ./test
             '';
             installPhase = "mkdir -p $out && echo passed > $out/result";

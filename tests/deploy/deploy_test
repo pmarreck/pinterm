@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# deploy-web publishing logic against a throwaway repository (never pushes):
+# the site lands on the branch as its own tree, unchanged reruns are no-ops,
+# changes add a commit on top, and the caller's checkout is untouched.
+set -u
+SUITE=deploy
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-deploy.XXXXXX")"
+repo="$dir/repo"; site="$dir/my site"
+git init -q -b yolo "$repo"
+git -C "$repo" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m source
+mkdir -p "$site/vendor"
+printf '<h1>v1</h1>\n' >"$site/index.html"; printf 'x' >"$site/vendor/a.js"; : >"$site/.nojekyll"
+chmod -R a-w "$site/vendor/a.js"   # Nix store files are read-only
+head_before="$(git -C "$repo" rev-parse HEAD)"
+
+publish() { capture env GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid \
+	"$root/deploy-web" --site "$site" --repo "$repo" --branch gh-pages --no-push; }
+
+publish
+check "first publish succeeds ($err)" [ "$rc" -eq 0 ]
+check "branch created" bash -c 'git -C "$1" rev-parse -q --verify refs/heads/gh-pages >/dev/null' _ "$repo"
+files="$(git -C "$repo" ls-tree -r --name-only gh-pages | LC_ALL=C sort | tr '\n' ' ')"
+check "branch holds exactly the site ($files)" [ "$files" = ".nojekyll index.html vendor/a.js " ]
+check "commit records the source revision" bash -c 'git -C "$1" log -1 --format=%B gh-pages | grep -q "$2"' _ "$repo" "$head_before"
+check "caller checkout untouched" [ "$(git -C "$repo" rev-parse HEAD)" = "$head_before" ] && [ "$(git -C "$repo" branch --show-current)" = yolo ]
+check "caller worktree clean" [ -z "$(git -C "$repo" status --porcelain)" ]
+first="$(git -C "$repo" rev-parse gh-pages)"
+
+publish
+check "unchanged rerun succeeds" [ "$rc" -eq 0 ]
+check "unchanged rerun is a no-op" [ "$(git -C "$repo" rev-parse gh-pages)" = "$first" ]
+check "no-op is reported" grep -q "unchanged" <<<"$err"
+
+chmod u+w "$site/index.html"; printf '<h1>v2</h1>\n' >"$site/index.html"
+publish
+check "changed site publishes" [ "$rc" -eq 0 ] && [ "$(git -C "$repo" rev-parse gh-pages)" != "$first" ]
+check "new commit builds on the previous one" [ "$(git -C "$repo" rev-parse gh-pages^)" = "$first" ]
+check "new content is on the branch" bash -c 'git -C "$1" show gh-pages:index.html | grep -q v2' _ "$repo"
+
+capture "$root/deploy-web" --site "$dir/missing" --repo "$repo" --no-push
+check "missing site is rejected" [ "$rc" -ne 0 ]
+chmod -R u+w "$dir"; command rm -rf -- "$dir"
+finish

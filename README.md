@@ -26,6 +26,8 @@ or `nix run github:pmarreck/pinterm`.
 
 ### In a browser
 
+Play it at **<https://pmarreck.github.io/pinterm/>**.
+
 `nix build .#web` (or `./build-web`) produces a static site in `result/`
 (or `out/web/`). Serve it with any static file server and open
 `index.html`. Use `?seed=N` for a repeatable game and `?demo` for a
@@ -142,6 +144,11 @@ emulator compiled to WebAssembly, displays the ANSI output. The core's PCM
 plays through Web Audio. Browsers report real key releases, so the page
 sends the same kitty-protocol release sequences a capable terminal would,
 and the flippers follow your fingers exactly.
+
+The site is published to GitHub Pages from the `gh-pages` branch by
+`./deploy-web`. It builds `.#web` with Nix from a clean checkout whose
+`HEAD` is already on `origin/yolo`, records that source commit in the
+deploy commit, and does nothing if the site is unchanged.
 
 The test suite replays the same seeded input through the native terminal
 host and through the WebAssembly module under Node.js, and requires

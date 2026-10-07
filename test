@@ -86,7 +86,7 @@ for name in "${roc_names[@]}" "roc formatting" "optimized build" "web build"; do
 # Phase 2: suites that exercise the built binary.
 if [[ " ${failed[*]} " != *" optimized build "* && " ${failed[*]} " != *" web build "* ]]; then
 	bin_names=()
-	for t in tests/cli/*_test tests/integration/*_test tests/web/*_test; do
+	for t in tests/cli/*_test tests/integration/*_test tests/web/*_test tests/deploy/*_test; do
 		[ -x "$t" ] || continue
 		bin_names+=("$t")
 		job "$t" "$t"
