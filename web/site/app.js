@@ -3,6 +3,7 @@
 // kitty-protocol terminal would send, and the core's PCM plays via Web Audio.
 import { Ghostty, Terminal, FitAddon } from "./vendor/ghostty-web.js";
 import { loadGame, keyEventBytes, SAMPLE_RATE, FLAG_RESIZED } from "./pinterm-core.js";
+import { createTouchControls } from "./touch-controls.js";
 
 const params = new URLSearchParams(location.search);
 const demo = params.has("demo");
@@ -11,7 +12,13 @@ const GAME_KEYS = new Set(["z", "Z", "/", " ", "t", "T", "p", "P", "m", "M", "h"
 
 const container = document.getElementById("terminal");
 const overlay = document.getElementById("start");
-const fontSize = () => Math.max(8, Math.floor(Math.min(innerWidth / (100 * 0.62), innerHeight / (42 * 1.22))));
+// Landscape: ~100 columns fit the table plus the side panel. Portrait: ~56
+// columns, below the panel threshold, so the core draws its compact score bar
+// on top and the table fills the screen.
+const fontSize = () => {
+	const cols = innerHeight > innerWidth ? 56 : 100;
+	return Math.max(8, Math.floor(Math.min(innerWidth / (cols * 0.62), innerHeight / (42 * 1.22))));
+};
 
 const ghostty = await Ghostty.load("./vendor/ghostty-vt.wasm");
 const term = new Terminal({
@@ -29,6 +36,20 @@ term.open(container);
 fit.fit();
 // Same terminal setup the native host sends: hide the cursor, no autowrap.
 term.write("\x1b[?25l\x1b[?7l");
+// ghostty-web makes its element contenteditable with a hidden textarea and
+// focuses it, which raises the on-screen keyboard on phones. The game reads
+// keys itself, so make those elements inert and never focusable.
+function disarmTextInput() {
+	for (const el of [container, ...container.querySelectorAll("[contenteditable], textarea, input")]) {
+		el.removeAttribute("contenteditable");
+		el.setAttribute("tabindex", "-1");
+		el.setAttribute("inputmode", "none");
+		if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") el.readOnly = true;
+		if (el === document.activeElement) el.blur();
+	}
+}
+disarmTextInput();
+new MutationObserver(disarmTextInput).observe(container, { subtree: true, childList: true, attributes: true, attributeFilter: ["contenteditable"] });
 
 const wasm = await (await fetch("./pinterm.wasm")).arrayBuffer();
 let game = await loadGame(wasm, { cols: term.cols, rows: term.rows, seed, sound: true });
@@ -69,17 +90,37 @@ function onKey(e, type) {
 addEventListener("keydown", (e) => onKey(e, "down"), { capture: true });
 addEventListener("keyup", (e) => onKey(e, "up"), { capture: true });
 addEventListener("resize", () => { term.options.fontSize = fontSize(); fit.fit(); });
-// Touch: left half = left flipper, right half = right flipper, two-finger tap = plunger.
-container.addEventListener("touchstart", (e) => {
+// Touch: lower corners are flippers, a downward stroke pulls the plunger.
+const touchLayer = document.getElementById("touch");
+const touch = createTouchControls({ width: innerWidth, height: innerHeight });
+addEventListener("resize", () => touch.resize(innerWidth, innerHeight));
+function sendTouch(actions) {
+	for (const a of actions) queue(keyEventBytes(a.key, a.type));
+}
+function onTouch(e, phase) {
 	e.preventDefault();
-	if (e.touches.length >= 2) { queue(keyEventBytes(" ", "down")); return; }
-	for (const t of e.changedTouches) queue(keyEventBytes(t.clientX < innerWidth / 2 ? "z" : "/", "down"));
-}, { passive: false });
-container.addEventListener("touchend", (e) => {
-	e.preventDefault();
-	queue(keyEventBytes(" ", "up"));
-	for (const t of e.changedTouches) queue(keyEventBytes(t.clientX < innerWidth / 2 ? "z" : "/", "up"));
-}, { passive: false });
+	if (!overlay.hidden) return;
+	if (quitShown && phase === "start") { restart(); return; }
+	const now = performance.now();
+	for (const t of e.changedTouches) {
+		if (phase === "start") sendTouch(touch.start(t.identifier, t.clientX, t.clientY, now));
+		else if (phase === "move") sendTouch(touch.move(t.identifier, t.clientX, t.clientY, now));
+		else if (phase === "end") sendTouch(touch.end(t.identifier, now));
+		else sendTouch(touch.cancel(t.identifier, now));
+	}
+}
+touchLayer.addEventListener("touchstart", (e) => onTouch(e, "start"), { passive: false });
+touchLayer.addEventListener("touchmove", (e) => onTouch(e, "move"), { passive: false });
+touchLayer.addEventListener("touchend", (e) => onTouch(e, "end"), { passive: false });
+touchLayer.addEventListener("touchcancel", (e) => onTouch(e, "cancel"), { passive: false });
+// Losing focus mid-press must not leave a flipper stuck up.
+addEventListener("blur", () => sendTouch(touch.cancelAll(performance.now())));
+document.addEventListener("visibilitychange", () => { if (document.hidden) sendTouch(touch.cancelAll(performance.now())); });
+// iOS grants audio permission only at the end of a gesture, and suspends the
+// context after backgrounding, so every completed gesture retries resume().
+for (const name of ["touchend", "pointerup", "click", "keydown"]) {
+	addEventListener(name, () => { if (audio && audio.state !== "running") audio.resume().catch(() => {}); }, { capture: true, passive: true });
+}
 
 async function restart() {
 	quitShown = false;
@@ -119,6 +160,7 @@ function tick(now) {
 		flags |= FLAG_RESIZED;
 	}
 	if (demo) queue(demoInput());
+	sendTouch(touch.tick(performance.now()));
 	const input = concat(pending);
 	pending = [];
 	const nowUs = demo ? demoFrame * 1e6 / 60 : now * 1000;
@@ -141,8 +183,9 @@ function tick(now) {
 function begin() {
 	if (!overlay.hidden) {
 		overlay.hidden = true;
+		setTimeout(() => document.body.classList.add("playing"), 6000);
 		try {
-			audio = new AudioContext();
+			audio = new (globalThis.AudioContext ?? globalThis.webkitAudioContext)();
 			audio.resume();
 		} catch {
 			audio = null;
@@ -153,6 +196,8 @@ function begin() {
 if (demo) begin();
 else {
 	overlay.addEventListener("click", begin);
+	// iOS: end of a tap is the user activation that may start audio.
+	overlay.addEventListener("touchend", (e) => { e.preventDefault(); begin(); }, { passive: false });
 	addEventListener("keydown", (e) => { if (!overlay.hidden) { e.preventDefault(); begin(); } }, { capture: true });
 }
 window.pinterm = { seed, eventLog };

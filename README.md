@@ -31,8 +31,12 @@ Play it at **<https://pmarreck.github.io/pinterm/>**.
 `nix build .#web` (or `./build-web`) produces a static site in `result/`
 (or `out/web/`). Serve it with any static file server and open
 `index.html`. Use `?seed=N` for a repeatable game and `?demo` for a
-self-playing attract mode. On touch screens, tap the left or right half for
-the flippers and use two fingers for the plunger.
+self-playing attract mode.
+
+On phones and tablets, touch and hold the lower-left or lower-right corner
+for the flippers, and swipe down anywhere else to pull the plunger; a longer
+swipe (about a third of the screen) launches harder. In portrait the table
+fills the screen with a compact score bar on top.
 
 ### Controls
 

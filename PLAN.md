@@ -12,6 +12,7 @@
 - [x] Web build: Roc core as wasm32 + ghostty-web + Web Audio, Nix output .#web, differential and headless-browser tests, README screenshot. (2026-10-07 16:55 EDT)
 - [x] GitHub Pages via ./deploy-web (gh-pages branch, no Actions); live at https://pmarreck.github.io/pinterm/ and verified with a real-keyboard headless Chromium session. (2026-10-07 18:40 EDT)
 - [ ] Faint seams between cell rows in ghostty-web canvas rendering; investigate font size/metrics.
+- [x] Touch controls: corner flippers, swipe-down plunger with distance power, no iOS keyboard (terminal input disarmed + touch layer), audio unlock on gesture end, portrait layout; unit + Chromium touch tests. (2026-10-07 19:45 EDT)
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)
 - [ ] Native smoke test in a real terminal; record observed results.

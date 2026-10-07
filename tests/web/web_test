@@ -31,6 +31,9 @@ for size in 100x40 80x24; do
 	check "wasm frame bytes identical to native at $size" cmp -s "$dir/native-frames-$size" "$dir/web-frames-$size"
 done
 
+capture node --test "$root/tests/web/touch.test.mjs"
+check "touch-control unit tests ($(grep -E "^. (pass|fail)" <<<"$out" | tr "\n" " "))" [ "$rc" -eq 0 ]
+
 # Real browser, real key events.
 if command -v chromium >/dev/null; then
 	capture timeout 90 node "$root/tests/web/browser.mjs" "$site" check
@@ -41,6 +44,16 @@ if command -v chromium >/dev/null; then
 	check "z key flipped the left flipper" grep -q '"flipped":"f=[0-9]* event flip side=left"' <<<"$out"
 	check "Web Audio available" grep -q '"audio":"function"' <<<"$out"
 	check "no page errors" grep -q '"problems":\[\]' <<<"$out"
+	capture timeout 90 node "$root/tests/web/browser.mjs" "$site" touch
+	check "touch session ran ($err)" [ "$rc" -eq 0 ]
+	check "tap dismissed the start overlay" grep -q '"overlayGone":true' <<<"$out"
+	check "swipe started a game" grep -q '"started":"f=[0-9]* event start' <<<"$out"
+	check "full swipe launched at full power" grep -Eq '"launched":"f=[0-9]+ event launch power=(9[0-9]|100)"' <<<"$out"
+	check "lower-left tap flipped left" grep -q '"left":"f=[0-9]* event flip side=left"' <<<"$out"
+	check "lower-right tap flipped right" grep -q '"right":"f=[0-9]* event flip side=right"' <<<"$out"
+	check "no editable element can raise a keyboard" grep -q '"editable":0' <<<"$out"
+	check "focus never lands on a text input" bash -c '! grep -Eq "\"focus\":\"(TEXTAREA|INPUT|[A-Z]+:editable)\"" <<<"$1"' _ "$out"
+	check "no page errors on touch" grep -q '"problems":\[\]' <<<"$out"
 else
 	fail "chromium unavailable: browser session not verified"
 fi

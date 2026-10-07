@@ -121,6 +121,38 @@ try {
 		const shot = await send("Page.captureScreenshot", { format: "png" });
 		writeFileSync(outPath, Buffer.from(shot.data, "base64"));
 		console.log(JSON.stringify({ problems: problems(), lastEvent: await evalPage("document.body.dataset.lastEvent ?? null") }));
+	} else if (command === "touch") {
+		// Phone-sized viewport with touch emulation and real touch events.
+		const W = 820, H = 1180;
+		await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+		await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 2, mobile: true });
+		await send("Page.navigate", { url: `${base}?seed=7` });
+		await waitFor("window.pinterm !== undefined", 20000);
+		const touchAt = (type, points) => send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y], i) => ({ x, y, id: i })) });
+		const tap = async (x, y) => { await touchAt("touchStart", [[x, y]]); await touchAt("touchEnd", []); };
+		const swipe = async (x, y0, y1) => {
+			await touchAt("touchStart", [[x, y0]]);
+			for (let i = 1; i <= 8; i++) {
+				await touchAt("touchMove", [[x, y0 + ((y1 - y0) * i) / 8]]);
+				await sleep(16);
+			}
+			await touchAt("touchEnd", []);
+		};
+		await tap(W / 2, H / 2); // dismiss the start overlay
+		const overlayGone = await waitFor("document.getElementById('start').hidden", 5000);
+		await swipe(W / 2, H * 0.2, H * 0.3); // a plunger press starts the game
+		const started = await waitForEvent(/event start/);
+		await sleep(1200); // let that short pull's delayed release land first
+		await swipe(W / 2, H * 0.15, H * 0.6); // full-length stroke
+		const launched = await waitForEvent(/event launch/);
+		await tap(40, H - 60);
+		const left = await waitForEvent(/event flip side=left/);
+		await tap(W - 40, H - 60);
+		const right = await waitForEvent(/event flip side=right/);
+		if (outPath) writeFileSync(outPath, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+		const focus = await evalPage("document.activeElement ? document.activeElement.tagName + (document.activeElement.isContentEditable ? ':editable' : '') : 'none'");
+		const editable = await evalPage("document.querySelectorAll('[contenteditable]').length");
+		console.log(JSON.stringify({ overlayGone, started, launched, left, right, focus, editable, problems: problems() }));
 	} else if (command === "check") {
 		await send("Page.navigate", { url: `${base}?seed=7` });
 		await waitFor("window.pinterm !== undefined", 20000);

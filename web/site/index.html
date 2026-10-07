@@ -2,29 +2,47 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <title>pinterm</title>
 <meta name="description" content="Top-down terminal pinball: a Roc game core compiled to WebAssembly, rendered by libghostty, with synthesized sound.">
 <style>
 	:root { color-scheme: dark; }
 	html, body { margin: 0; height: 100%; background: #07050e; color: #c9c3e6; font: 15px/1.5 ui-monospace, Menlo, Consolas, monospace; overflow: hidden; }
-	#terminal { position: absolute; inset: 0 0 22px 0; display: flex; align-items: center; justify-content: center; }
-	#start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6em; background: rgba(7, 5, 14, 0.88); cursor: pointer; text-align: center; padding: 16px; }
+	/* A game, not a document. iOS honours only the prefixed properties; without
+	   them a long press selects the page and raises the system callout. */
+	html, body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: none; overscroll-behavior: none; }
+	/* The terminal never receives pointer input, so its hidden text input can
+	   never be focused by a tap (that is what raised the on-screen keyboard). */
+	#terminal { position: absolute; inset: 0 0 22px 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+	#touch { position: absolute; inset: 0; touch-action: none; }
+	.hint { position: absolute; z-index: 1; bottom: 30px; padding: 0.5em 0.8em; border: 1px dashed rgba(255, 79, 216, 0.5); border-radius: 12px; background: rgba(7, 5, 14, 0.85); color: rgba(255, 242, 168, 0.75); font-size: 13px; pointer-events: none; display: none; transition: opacity 1.5s; }
+	/* Hints fade once play has started; the start overlay explains them too. */
+	.playing .hint { opacity: 0; }
+	.hint.left { left: 10px; }
+	.hint.right { right: 10px; }
+	.hint.stroke { bottom: auto; top: 38%; left: 50%; transform: translateX(-50%); border-color: rgba(0, 229, 255, 0.4); }
+	@media (pointer: coarse) { .hint { display: block; } }
+	#start { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6em; background: rgba(7, 5, 14, 0.88); cursor: pointer; text-align: center; padding: 16px; }
 	#start[hidden] { display: none; }
 	#start h1 { margin: 0; font-size: 2.6em; letter-spacing: 0.35em; background: linear-gradient(90deg, #ff2a8a, #ffd23f, #9dff00, #00e5ff, #b44dff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 	#start .go { color: #fff2a8; font-size: 1.2em; }
 	#start .keys { color: #8a83b0; }
-	footer { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 11px; color: #4a4470; }
-	footer a { color: #6a6390; }
+	footer { position: absolute; z-index: 1; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 11px; color: #4a4470; pointer-events: none; }
+	footer a { color: #6a6390; pointer-events: auto; }
 </style>
 </head>
 <body>
 <div id="terminal"></div>
+<div id="touch"></div>
+<div class="hint left">&#9664; left flipper</div>
+<div class="hint right">right flipper &#9654;</div>
+<div class="hint stroke">&#8595; swipe down to launch</div>
 <div id="start">
 	<h1>PINTERM</h1>
-	<div class="go">Click or press any key to play (with sound)</div>
+	<div class="go">Tap, click or press any key to play (with sound)</div>
 	<div class="keys">z / &larr; left flipper &nbsp; / / &rarr; right flipper &nbsp; space plunger &nbsp; t nudge &nbsp; p pause &nbsp; m mute &nbsp; h help</div>
-	<div class="keys">Touch: left / right half for flippers, two fingers for the plunger</div>
+	<div class="keys">Touch: lower corners are the flippers; swipe down to pull the plunger (farther = harder)</div>
 </div>
 <footer>Roc game core in WebAssembly &middot; rendered by <a href="https://github.com/coder/ghostty-web">ghostty-web</a> (libghostty) &middot; <a href="https://github.com/pmarreck/pinterm">source</a> &middot; <a href="licenses/">licenses</a></footer>
 <script type="module" src="./app.js"></script>
