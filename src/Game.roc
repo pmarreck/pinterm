@@ -244,6 +244,10 @@ tilt_warn = 1.9
 tilt_decay : F64
 tilt_decay = 0.45
 
+## Below this height a resting ball is on (or against) the flippers.
+cradle_zone_y : F64
+cradle_zone_y = 64.0
+
 jackpot_base : I64
 jackpot_base = 10000
 
@@ -757,7 +761,8 @@ update_saucer = |g| {
 ## Ball search: a ball sitting still outside the plunger lane gets a kick.
 unstick : State, F64 -> State
 unstick = |g, dt| {
-	slow = g.balls.any(|b| Physics.length(b.vel) < 3.0 and b.pos.x < Table.lane_left)
+	# Balls resting on the flippers are being cradled on purpose, not stuck.
+	slow = g.balls.any(|b| Physics.length(b.vel) < 3.0 and b.pos.x < Table.lane_left and b.pos.y < cradle_zone_y)
 	all_slow = slow and g.balls.all(|b| Physics.length(b.vel) < 3.0)
 	if all_slow {
 		t = g.still_time + dt

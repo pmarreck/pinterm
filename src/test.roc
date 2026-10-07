@@ -473,3 +473,32 @@ expect {
 	drained = run_frames({ ..relaunched, balls: [{ pos: { x: 22.0, y: 80.0 }, vel: { x: 0.0, y: 50.0 }, r: 1.0 }] }, 10)
 	saved.on_plunger and drained.mode == BallOver
 }
+
+# Cradling a ball on a held flipper is legitimate: ball search must not kick it.
+expect {
+	g = { ..in_play(started, 17.0, 64.0, 0.0, 0.0), exact_keys: Bool.True }
+	(held, lines) = run_logged(Game.step(g, frame, [Press(LeftFlip)]), 330)
+	held.balls.all(|b| b.pos.y > 64.0) and !lines.any(|l| l.contains("ball_search"))
+}
+
+# A ball stuck elsewhere on the playfield is eventually kicked loose.
+expect {
+	g = in_play(started, 22.0, 40.0, 0.0, 0.0)
+	frozen = { ..g, still_time: 2.99 }
+	kicked = Game.step({ ..frozen, balls: [{ pos: { x: 30.0, y: 50.0 }, vel: { x: 0.0, y: 0.0 }, r: 1.0 }] }, frame, [])
+	kicked.log.any(|l| l.contains("ball_search")) or kicked.balls.any(|b| b.vel.y < -10.0)
+}
+
+## Run frames with no input, collecting every frame's event log lines.
+run_logged : Game.State, U64 -> (Game.State, List(Str))
+run_logged = |g, n| {
+	var $g = g
+	var $lines = []
+	var $i = 0
+	while $i < n {
+		$g = Game.step($g, frame, [])
+		$lines = List.concat($lines, $g.log)
+		$i = $i + 1
+	}
+	($g, $lines)
+}

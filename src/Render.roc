@@ -739,7 +739,7 @@ draw_panel = |cells, g, lay, opts| {
 		"/ / ->    right flip",
 		"space     plunger",
 		"t / up    nudge",
-		"p pause  h help  q quit",
+		"p pause h help q quit",
 		sound_text,
 	]
 	start_row = if height > 25 height - 8 else 18
