@@ -2,12 +2,13 @@
 
 - [x] Verify and pin a usable Roc compiler/platform in a Nix flake, reusing existing working toolchain patterns where suitable. (2026-10-07 01:20 EDT)
 - [x] Write failing deterministic gameplay tests and implement the ball, flippers, collision geometry, scoring, drain, and three-ball restart loop in Roc. (2026-10-07 01:45 EDT)
-- [ ] Input parser in Roc: baseline bytes, arrows, kitty keyboard press/repeat/release, Ctrl-C/Ctrl-Z, set-based classifier tests.
-- [ ] Renderer in Roc: half-block neon table, ball glyph, panel/HUD, popups, scaling to terminal size, 256/16/mono/ASCII fallbacks, diffed ANSI output.
-- [ ] Synthesizer in Roc: original square/triangle/noise voices for every gameplay effect, bounded voice count, deterministic PCM tests.
-- [ ] Main loop in Roc wiring tick packets, input, Game.step, render, audio and structured event log; pause/mute/help/quit/suspend.
-- [ ] Headless replay integration test proving launch, flipper reaction, scoring, drain and game over without hanging.
-- [ ] Real-terminal cleanup integration tests (normal quit, SIGTERM, suspend/resume) under a pseudo-terminal.
+- [x] Input parser in Roc: bytes, arrows, kitty press/repeat/release, Ctrl-C/Ctrl-Z, byte-set classifier tests. (2026-10-07 01:38 EDT)
+- [x] Renderer in Roc: half-block table, panel/HUD, popups, scaling, color/mono/ASCII fallbacks, diffed ANSI. (2026-10-07 01:41 EDT)
+- [x] Synthesizer in Roc: square/triangle/saw/noise voices per effect, capped pool, deterministic PCM tests. (2026-10-07 01:46 EDT)
+- [x] Main loop in Roc (Loop.frame) wiring tick packets, input, game, render, audio, event log. (2026-10-07 01:49 EDT)
+- [x] Headless replay integration test: launch, flips, scoring, drains, game over, restart, determinism. (2026-10-07 02:00 EDT)
+- [x] Real pty cleanup tests: quit, SIGTERM, SIGSEGV, SIGABRT, suspend/resume. (2026-10-07 02:05 EDT)
+- [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [ ] Native smoke test in a real terminal; record observed results.
 - [ ] Document installation, controls, architecture, verified targets, limitations, and the next fun improvements; dirtree notes.
 - [ ] Improve the shared writing-roc skill only with reproduced/version-labeled new lessons and preserve unrelated edits (separate commit, skill-creator, shared-skill tests).

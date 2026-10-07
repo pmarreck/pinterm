@@ -6,3 +6,6 @@ result-*
 zig-out/
 .zig-cache/
 out/
+bin/linux/
+bin/macos/
+bin/windows/

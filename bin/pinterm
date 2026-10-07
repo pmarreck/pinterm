@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Launch the pinterm binary published for this host by ./build
+# (bin/<os>/<arch>/pinterm), building it first if it is missing.
+root="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+case "$(uname -s)" in
+	Linux) os=linux ;;
+	Darwin) os=macos ;;
+	*) echo "pinterm: unsupported OS $(uname -s)" >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+	x86_64|amd64|AMD64) arch=x86_64 ;;
+	aarch64|arm64) arch=aarch64 ;;
+	*) echo "pinterm: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+exe="$root/bin/$os/$arch/pinterm"
+if [ ! -x "$exe" ]; then
+	echo "pinterm: no build for $os/$arch yet; running ./build" >&2
+	"$root/build" >&2 || exit $?
+fi
+exec "$exe" "$@"

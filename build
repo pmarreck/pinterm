@@ -67,3 +67,11 @@ zig cc -target "$zig_target" -mcpu=baseline $warn $copt -static \
 	-I"$work/platform" -I"$root/host" \
 	"$root"/host/*.c "$work/libpinterm.a" -lm -o "$out/$profile/bin/pinterm"
 echo "built $out/$profile/bin/pinterm" >&2
+
+# Publish the host entrypoint (only for the default output tree, after success).
+if [ "$out" = "$root/out" ]; then
+	case "$(uname -m)" in x86_64) arch=x86_64 ;; aarch64) arch=aarch64 ;; esac
+	mkdir -p "$root/bin/linux/$arch"
+	ln -sfn "../../../out/$profile/bin/pinterm" "$root/bin/linux/$arch/pinterm"
+	echo "published bin/linux/$arch/pinterm -> out/$profile/bin/pinterm" >&2
+fi

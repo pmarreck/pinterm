@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# bin/pinterm launcher: selects the host-published binary, passes arguments
+# (including ones with spaces) and exit status through unchanged.
+set -u
+SUITE=launcher
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+case "$(uname -m)" in x86_64|amd64) arch=x86_64 ;; aarch64|arm64) arch=aarch64 ;; *) arch=unknown ;; esac
+host="$root/bin/linux/$arch/pinterm"
+
+check "build published host binary" [ -x "$host" ]
+check "host entry is a relative symlink" bash -c '[ -L "$1" ] && [[ "$(readlink "$1")" != /* ]]' _ "$host"
+check "launcher is executable" [ -x "$root/bin/pinterm" ]
+capture "$root/bin/pinterm" --about
+check "launcher runs the binary" grep -Eq "^pinterm .*linux $arch" <<<"$out"
+capture "$root/bin/pinterm" --bogus
+check "launcher preserves exit status" [ "$rc" -eq 2 ]
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm launch.XXXXXX")"
+printf '5 q\n' >"$dir/a script"
+capture "$root/bin/pinterm" --headless --frames 20 --script "$dir/a script" --log-out "$dir/log out"
+check "launcher passes args with spaces" [ "$rc" -eq 0 ] && [ -s "$dir/log out" ]
+command rm -rf -- "$dir"
+finish
