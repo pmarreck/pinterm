@@ -8,6 +8,7 @@
 - [x] Main loop in Roc (Loop.frame) wiring tick packets, input, game, render, audio, event log. (2026-10-07 01:49 EDT)
 - [x] Headless replay integration test: launch, flips, scoring, drains, game over, restart, determinism. (2026-10-07 02:00 EDT)
 - [x] Real pty cleanup tests: quit, SIGTERM, SIGSEGV, SIGABRT, suspend/resume. (2026-10-07 02:05 EDT)
+- [x] Fast ./test: rebuild only when inputs change, parallel per-area Roc suites with compiler cache, parallel integration suites, real quit-key pty test (4.4 min -> 15.5 s when no rebuild is needed). (2026-10-07 09:45 EDT)
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [ ] Native smoke test in a real terminal; record observed results.
 - [ ] Document installation, controls, architecture, verified targets, limitations, and the next fun improvements; dirtree notes.

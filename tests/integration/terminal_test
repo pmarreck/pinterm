@@ -21,7 +21,10 @@ wait_for() { local n=0; while ! eval "$1"; do n=$((n + 1)); [ $n -gt 500 ] && re
 raw() { [ "$(stty -g)" != "$(cat "$dir/before")" ]; }
 case "$mode" in
 	frames) "$bin" --mute --frames 20 </dev/null; echo $? >"$dir/rc" ;;
-	quitkey) printf 'q' | "$bin" --mute --frames 600; echo $? >"$dir/rc" ;;
+	quitkey)
+		# Signal readiness once raw mode is on; the outer test then types q into the pty.
+		( wait_for raw && touch "$dir/ready" ) &
+		"$bin" --mute --frames 100000 </dev/tty; echo $? >"$dir/rc" ;;
 	term|segv|abrt)
 		"$bin" --mute --frames 100000 </dev/null & pid=$!
 		wait_for raw || echo noraw >"$dir/note"
@@ -42,8 +45,18 @@ chmod +x "$dir/driver"
 
 run_case() { # run_case mode expected_rc
 	local mode="$1" want="$2" log="$dir/$1.out"
-	command rm -f -- "$dir/rc" "$dir/note" "$dir/before" "$dir/after" "$dir/while_stopped"
-	timeout 30 script -qec "'$dir/driver' '$bin' $mode '$dir'" "$log" >/dev/null 2>&1 </dev/null
+	command rm -f -- "$dir/rc" "$dir/note" "$dir/before" "$dir/after" "$dir/while_stopped" "$dir/ready" "$dir/keys"
+	mkfifo "$dir/keys"
+	timeout 30 script -qec "'$dir/driver' '$bin' $mode '$dir'" "$log" >/dev/null 2>&1 <"$dir/keys" &
+	local spid=$!
+	exec 3>"$dir/keys"
+	if [ "$mode" = quitkey ]; then
+		local n=0
+		while [ ! -e "$dir/ready" ] && [ $n -lt 500 ]; do n=$((n + 1)); sleep 0.01; done
+		printf q >&3
+	fi
+	wait "$spid"
+	exec 3>&-
 	check "$mode: exit status $(cat "$dir/rc" 2>/dev/null) == $want" [ "$(cat "$dir/rc" 2>/dev/null)" = "$want" ]
 	check "$mode: no driver anomalies ($(cat "$dir/note" 2>/dev/null))" [ ! -s "$dir/note" ]
 	check "$mode: termios restored" cmp -s "$dir/before" "$dir/after"

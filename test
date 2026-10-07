@@ -1,44 +1,84 @@
 #!/usr/bin/env bash
-# Complete pinterm test entry point: Roc core expectations, optimized build,
-# CLI surface, headless gameplay replay and real-terminal cleanup.
+# Complete pinterm test entry point: Roc core expectations, formatting, the
+# optimized build (only when its inputs changed), CLI surface, headless
+# gameplay replay, PCM capture and real-terminal cleanup.
+# Independent suites run in parallel; output is printed in a fixed order.
+# Usage: ./test [--rebuild]   (force the optimized build even if up to date)
 set -u
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -z "${PINTERM_ROC:-}" ]; then
 	exec nix develop "$root" -c "$root/test" "$@"
 fi
 cd "$root" || exit 1
+force_build=0
+[ "${1:-}" = "--rebuild" ] && force_build=1
 export MUTE_DEBUG_STATUS=1 PINTERM_MUTE=1
 export PINTERM_BIN="${PINTERM_BIN:-$root/out/release/bin/pinterm}"
+work="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-test.XXXXXX")"
+trap 'command rm -rf -- "$work"' EXIT
 failed=()
-step() { # step name command...
-	local name="$1"; shift
+
+# report NAME: print a finished job's captured output and record failure.
+key() { printf '%s' "$1" | tr '/ ' '__'; }
+report() {
+	local name="$1" rc k
+	k="$(key "$name")"
+	rc="$(cat "$work/$k.rc" 2>/dev/null || echo 1)"
 	printf '\033[36m==>\033[0m %s\n' "$name"
-	if ! "$@"; then failed+=("$name"); fi
+	cat "$work/$k.out" 2>/dev/null
+	[ "$rc" = 0 ] || failed+=("$name")
 }
-roc_core() {
-	local w="${TMPDIR:-/tmp}/pinterm-roc-test.$$" out rc
-	mkdir -p "$w/src" && cp src/*.roc "$w/src/" && cp -r platform "$w/platform"
-	out="$("$PINTERM_ROC" test "$w/src/test.roc" --no-cache --jobs="${PINTERM_ROC_JOBS:-4}" 2>&1)"
-	rc=$?
-	command rm -rf -- "$w"
-	printf '%s\n' "$out" | tail -n 3
-	return $rc
-}
-roc_fmt() { "$PINTERM_ROC" fmt --check src platform >/dev/null 2>&1 || { "$PINTERM_ROC" fmt --check src platform; return 1; }; }
-build_quiet() {
-	local log rc
-	log="$(./build 2>&1)"; rc=$?
-	[ $rc -eq 0 ] || printf '%s\n' "$log"
-	return $rc
+# job NAME CMD...: run in the background, capturing output and status.
+job() {
+	local k; k="$(key "$1")"; shift
+	( "$@" >"$work/$k.out" 2>&1; echo $? >"$work/$k.rc" ) &
 }
 
-step "roc core expectations" roc_core
-step "roc formatting" roc_fmt
-step "optimized build" build_quiet
-for t in tests/cli/*_test tests/integration/*_test; do
-	[ -x "$t" ] || continue
-	step "$t" "$t"
+build_stale() {
+	[ "$force_build" = 1 ] && return 0
+	[ -x "$PINTERM_BIN" ] || return 0
+	# Test-only Roc files are not linked into the binary.
+	[ -n "$(find src platform host nix build flake.nix flake.lock -newer "$PINTERM_BIN" ! -name "test_*.roc" ! -name TestKit.roc -print -quit 2>/dev/null)" ]
+}
+build_step() {
+	if build_stale; then
+		./build || return 1
+	else
+		echo "up to date ($(realpath --relative-to="$root" "$PINTERM_BIN"))"
+	fi
+}
+roc_suite() { # Expectations per area; the compiler cache is keyed on source content.
+	local out rc
+	out="$("$PINTERM_ROC" test "src/$1.roc" --jobs="${PINTERM_ROC_JOBS:-8}" 2>&1)"
+	rc=$?
+	[ $rc -eq 0 ] && printf '%s\n' "$out" | tail -n 1 || printf '%s\n' "$out"
+	return $rc
+}
+roc_fmt() { "$PINTERM_ROC" fmt --check src platform; }
+
+# Phase 1: the build (if needed) overlaps the pure Roc suites.
+job "optimized build" build_step
+roc_names=()
+for f in src/test_*.roc; do
+	name="roc ${f#src/}"
+	roc_names+=("$name")
+	job "$name" roc_suite "$(basename "$f" .roc)"
 done
+job "roc formatting" roc_fmt
+wait
+for name in "${roc_names[@]}" "roc formatting" "optimized build"; do report "$name"; done
+
+# Phase 2: suites that exercise the built binary.
+if [[ " ${failed[*]} " != *" optimized build "* ]]; then
+	bin_names=()
+	for t in tests/cli/*_test tests/integration/*_test; do
+		[ -x "$t" ] || continue
+		bin_names+=("$t")
+		job "$t" "$t"
+	done
+	wait
+	for name in "${bin_names[@]}"; do report "$name"; done
+fi
 
 if [ ${#failed[@]} -gt 0 ]; then
 	printf '\033[31mFAILED:\033[0m %s\n' "${failed[@]}"
