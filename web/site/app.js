@@ -9,7 +9,9 @@ import { createShakeDetector } from "./shake.js";
 const params = new URLSearchParams(location.search);
 const demo = params.has("demo");
 const seed = Number(params.get("seed") ?? Math.floor(Math.random() * 2 ** 31));
-const GAME_KEYS = new Set(["z", "Z", "/", " ", "t", "T", "p", "P", "m", "M", "h", "H", "?", "n", "N", "q", "Q", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+// ?table=N opens on table N (0 = Classic); the core switches with "]" between games.
+const startTable = Math.max(0, Math.min(16, Math.floor(Number(params.get("table") ?? 0)) || 0));
+const GAME_KEYS = new Set(["z", "Z", "/", " ", "t", "T", "p", "P", "m", "M", "h", "H", "?", "n", "N", "q", "Q", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "[", "]"]);
 
 const container = document.getElementById("terminal");
 const overlay = document.getElementById("start");
@@ -57,6 +59,7 @@ let game = await loadGame(wasm, { cols: term.cols, rows: term.rows, seed, sound:
 let pending = [];
 let size = { cols: 0, rows: 0 };
 let quitShown = false;
+let firstFrame = true;
 // Recent structured game events (bounded), for tests and curious players.
 const eventLog = [];
 
@@ -180,6 +183,10 @@ function tick(now) {
 	if (term.cols !== size.cols || term.rows !== size.rows) {
 		size = { cols: term.cols, rows: term.rows };
 		flags |= FLAG_RESIZED;
+	}
+	if (firstFrame) {
+		firstFrame = false;
+		for (let i = 0; i < startTable; i++) queue(keyEventBytes("]", "down"));
 	}
 	if (demo) queue(demoInput());
 	sendTouch(touch.tick(performance.now()));

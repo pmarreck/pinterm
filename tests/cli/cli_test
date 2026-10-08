@@ -9,6 +9,8 @@ capture "$bin" --help
 check "--help exits 0" [ "$rc" -eq 0 ]
 check "--help lists flipper controls" grep -q "left flipper" <<<"$out"
 check "--help lists headless replay" grep -q -- "--headless" <<<"$out"
+check "--help lists table selection" grep -q "change table" <<<"$out"
+check "--help names the real nudge key" grep -Eq "^  t / Up arrow +nudge" <<<"$out"
 capture "$bin" -h
 check "-h matches --help" grep -q "Usage: pinterm" <<<"$out"
 

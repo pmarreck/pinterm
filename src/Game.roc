@@ -2,15 +2,18 @@ import Physics
 import Table
 
 ## Pure pinball game state machine: fixed-timestep ball physics against the
-## table, flipper/plunger control (with key-release emulation for terminals
-## that only report presses), scoring rules, combos, multiball, ball save,
-## tilt, and per-frame effect events for the renderer and synthesizer.
+## current table layout, flipper/plunger control (with key-release emulation
+## for terminals that only report presses), scoring rules, drop targets,
+## ramps, combos, multiball, ball save, tilt, between-game table switching,
+## and per-frame effect events for the renderer and synthesizer.
 Game :: [].{
-	Key : [LeftFlip, RightFlip, Plunger, Start, Nudge, Pause, New]
+	Key : [LeftFlip, RightFlip, Plunger, Start, Nudge, Pause, New, PrevTable, NextTable]
 	Event : [Press(Key), Release(Key)]
 	Mode : [Attract, Playing, BallOver, GameOver]
 	Ball : { pos : V, vel : V, r : F64 }
 	Flipper : { angle : F64, omega : F64, down : Bool, until : F64 }
+	Rider : { ramp : U64, s : F64 }
+	Held : { ball : Ball, saucer : U64 }
 	Fx : [
 		Bumper(I64),
 		Sling,
@@ -21,6 +24,9 @@ Game :: [].{
 		LanesDone,
 		Target,
 		TargetsDone,
+		Drop,
+		DropsDone,
+		Ramp(I64),
 		Saucer,
 		Multiball,
 		Jackpot,
@@ -31,6 +37,7 @@ Game :: [].{
 		GameOver,
 		Begin,
 		Wall(F64),
+		TableSwitch,
 	]
 	Popup : { pos : V, text : Str, until : F64 }
 	State : {
@@ -38,8 +45,11 @@ Game :: [].{
 		time : F64,
 		acc : F64,
 		rng : U64,
+		table_index : U64,
+		table : Table.Layout,
 		score : I64,
 		high : I64,
+		highs : List(I64),
 		ball_number : I64,
 		balls : List(Ball),
 		on_plunger : Bool,
@@ -50,15 +60,23 @@ Game :: [].{
 		pull_repeats : I64,
 		left : Flipper,
 		right : Flipper,
+		uppers : List(Flipper),
 		exact_keys : Bool,
 		mult : I64,
 		lanes_lit : List(Bool),
 		lane_cool : List(F64),
 		targets_lit : List(Bool),
+		drops_down : List(Bool),
+		drop_flash : List(F64),
+		drop_reset_at : F64,
+		riders : List(Rider),
+		ramp_combo : I64,
+		ramp_combo_until : F64,
+		cars : U64,
 		lock_lit : Bool,
 		multiball : Bool,
 		jackpot : I64,
-		saucer_hold : List(Ball),
+		saucer_hold : List(Held),
 		saucer_until : F64,
 		saucer_cool : F64,
 		combo : I64,
@@ -74,6 +92,7 @@ Game :: [].{
 		bumpers_hit : I64,
 		targets_hit : I64,
 		lanes_hit : I64,
+		ramps_hit : I64,
 		mode_until : F64,
 		message : Str,
 		message_until : F64,
@@ -85,6 +104,9 @@ Game :: [].{
 		log : List(Str),
 		frame : U64,
 		bonus_award : I64,
+		transition_from : U64,
+		transition_dir : I64,
+		transition_start : F64,
 	}
 
 	balls_per_game : I64
@@ -95,59 +117,89 @@ Game :: [].{
 	substep : F64
 	substep = 1.0 / 480.0
 
+	## Seconds the animated slide between tables takes.
+	transition_time : F64
+	transition_time = 0.45
+
+	## Ramp riding speed along the ramp path (world units per second).
+	ride_speed : F64
+	ride_speed = 95.0
+
 	new : U64 -> State
-	new = |seed| {
-		mode: Attract,
-		time: 0.0,
-		acc: 0.0,
-		rng: mix_seed(seed),
-		score: 0,
-		high: 0,
-		ball_number: 0,
-		balls: [],
-		on_plunger: Bool.False,
-		pulling: Bool.False,
-		pull: 0.0,
-		pull_start: 0.0,
-		pull_last: 0.0,
-		pull_repeats: 0,
-		left: { angle: Table.left_rest, omega: 0.0, down: Bool.False, until: 0.0 },
-		right: { angle: Table.right_rest, omega: 0.0, down: Bool.False, until: 0.0 },
-		exact_keys: Bool.False,
-		mult: 1,
-		lanes_lit: [Bool.False, Bool.False, Bool.False],
-		lane_cool: [0.0, 0.0, 0.0],
-		targets_lit: [Bool.False, Bool.False, Bool.False, Bool.False],
-		lock_lit: Bool.False,
-		multiball: Bool.False,
-		jackpot: jackpot_base,
-		saucer_hold: [],
-		saucer_until: 0.0,
-		saucer_cool: 0.0,
-		combo: 0,
-		combo_until: 0.0,
-		save_until: 0.0,
-		save_spent: Bool.False,
-		tilt: 0.0,
-		tilted: Bool.False,
-		bumper_flash: [0.0, 0.0, 0.0],
-		sling_flash: [0.0, 0.0],
-		target_flash: [-10.0, -10.0, -10.0, -10.0],
-		popups: [],
-		bumpers_hit: 0,
-		targets_hit: 0,
-		lanes_hit: 0,
-		mode_until: 0.0,
-		message: "PRESS SPACE TO PLAY",
-		message_until: 1.0e9,
-		paused: Bool.False,
-		skill_lane: 1,
-		skill_live: Bool.False,
-		still_time: 0.0,
-		fx: [],
-		log: [],
-		frame: 0,
-		bonus_award: 0,
+	new = |seed| Game.new_on(seed, 0)
+
+	## A fresh attract-mode game on table `index`.
+	new_on : U64, U64 -> State
+	new_on = |seed, index| {
+		table = Table.at(index)
+		{
+			mode: Attract,
+			time: 0.0,
+			acc: 0.0,
+			rng: mix_seed(seed),
+			table_index: index % Table.count,
+			table,
+			score: 0,
+			high: 0,
+			highs: List.repeat(0, Table.count),
+			ball_number: 0,
+			balls: [],
+			on_plunger: Bool.False,
+			pulling: Bool.False,
+			pull: 0.0,
+			pull_start: 0.0,
+			pull_last: 0.0,
+			pull_repeats: 0,
+			left: { angle: Table.left_rest, omega: 0.0, down: Bool.False, until: 0.0 },
+			right: { angle: Table.right_rest, omega: 0.0, down: Bool.False, until: 0.0 },
+			uppers: table.uppers.map(|u| { angle: u.rest, omega: 0.0, down: Bool.False, until: 0.0 }),
+			exact_keys: Bool.False,
+			mult: 1,
+			lanes_lit: List.repeat(Bool.False, table.lanes.len()),
+			lane_cool: List.repeat(0.0, table.lanes.len()),
+			targets_lit: List.repeat(Bool.False, table.standups.len()),
+			drops_down: List.repeat(Bool.False, table.drops.len()),
+			drop_flash: List.repeat(-10.0, table.drops.len()),
+			drop_reset_at: 0.0,
+			riders: [],
+			ramp_combo: 0,
+			ramp_combo_until: 0.0,
+			cars: 0,
+			lock_lit: Bool.False,
+			multiball: Bool.False,
+			jackpot: jackpot_base,
+			saucer_hold: [],
+			saucer_until: 0.0,
+			saucer_cool: 0.0,
+			combo: 0,
+			combo_until: 0.0,
+			save_until: 0.0,
+			save_spent: Bool.False,
+			tilt: 0.0,
+			tilted: Bool.False,
+			bumper_flash: List.repeat(0.0, table.bumpers.len()),
+			sling_flash: List.repeat(0.0, table.slings.len()),
+			target_flash: List.repeat(-10.0, table.standups.len()),
+			popups: [],
+			bumpers_hit: 0,
+			targets_hit: 0,
+			lanes_hit: 0,
+			ramps_hit: 0,
+			mode_until: 0.0,
+			message: "PRESS SPACE TO PLAY",
+			message_until: 1.0e9,
+			paused: Bool.False,
+			skill_lane: 1,
+			skill_live: Bool.False,
+			still_time: 0.0,
+			fx: [],
+			log: [],
+			frame: 0,
+			bonus_award: 0,
+			transition_from: index % Table.count,
+			transition_dir: 0,
+			transition_start: -10.0,
+		}
 	}
 
 	## Advance one rendered frame: apply input events, then run whole physics
@@ -173,25 +225,45 @@ Game :: [].{
 		}
 	}
 
-	## Flipper end point for rendering and collision.
+	## Flipper end point for rendering and collision (main flippers).
 	flipper_tip : V, F64 -> V
-	flipper_tip = |pivot, angle| {
-		x: pivot.x + Table.flipper_length * angle.cos(),
-		y: pivot.y + Table.flipper_length * angle.sin(),
+	flipper_tip = |pivot, angle| tip_at(pivot, angle, Table.flipper_length)
+
+	## End point of a flipper of any length.
+	tip_at : V, F64, F64 -> V
+	tip_at = |pivot, angle, len| {
+		x: pivot.x + len * angle.cos(),
+		y: pivot.y + len * angle.sin(),
 	}
 
 	## Seconds of ball save remaining (0 when inactive).
 	save_left : State -> F64
 	save_left = |g| if g.save_until > g.time g.save_until - g.time else 0.0
+
+	## Table-switch slide progress in [0, 1]; 1 means no transition showing.
+	transition : State -> F64
+	transition = |g| Physics.clamp((g.time - g.transition_start) / Game.transition_time, 0.0, 1.0)
+
+	## Point a ramp rider has reached along its ramp path.
+	rider_pos : Table.Layout, Rider -> V
+	rider_pos = |table, r| {
+		path = (table.ramps.get(r.ramp) ?? empty_ramp).path
+		(pos, _) = along(path, r.s)
+		pos
+	}
+
+	## Total length of a polyline.
+	path_length : List(V) -> F64
+	path_length = |path| path_len(path)
 }
 
 V : { x : F64, y : F64 }
 
+empty_ramp : Table.Ramp
+empty_ramp = { name: "", entry: { x: 0.0, y: 0.0 }, entry_r: 0.0, min_speed: 1.0e9, path: [{ x: 0.0, y: 0.0 }], exit_speed: 0.0 }
+
 max_frame_dt : F64
 max_frame_dt = 0.1
-
-gravity : F64
-gravity = 72.0
 
 max_speed : F64
 max_speed = 170.0
@@ -232,6 +304,9 @@ plunger_full_time = 0.9
 combo_window : F64
 combo_window = 1.6
 
+ramp_combo_window : F64
+ramp_combo_window = 4.0
+
 ball_save_time : F64
 ball_save_time = 9.0
 
@@ -253,6 +328,9 @@ jackpot_base = 10000
 
 bonus_pause : F64
 bonus_pause = 2.6
+
+drop_reset_delay : F64
+drop_reset_delay = 1.5
 
 # ---------- random numbers (xorshift64*) ----------
 
@@ -276,6 +354,15 @@ rand : State -> (F64, State)
 rand = |g| {
 	(u, s) = next_unit(g.rng)
 	(u, { ..g, rng: s })
+}
+
+## Uniform index in [0, n).
+rand_index : State, U64 -> (U64, State)
+rand_index = |g, n| {
+	(u, g1) = rand(g)
+	scaled = (u * n.to_f64()).floor_to_u64_try() ?? 0
+	i = if n == 0 0 else if scaled >= n n - 1 else scaled
+	(i, g1)
 }
 
 # ---------- small helpers ----------
@@ -322,6 +409,52 @@ award = |g, base, pos| {
 	popup(g1, pos, label)
 }
 
+## Point and direction at distance `s` along a polyline (clamped to its end).
+along : List(V), F64 -> (V, V)
+along = |path, s| {
+	var $left = s
+	var $pos = path.first() ?? { x: 0.0, y: 0.0 }
+	var $dir = { x: 0.0, y: -1.0 }
+	var $done = Bool.False
+	var $i = 0
+	n = path.len()
+	while $i + 1 < n and !$done {
+		a = path.get($i) ?? $pos
+		b = path.get($i + 1) ?? a
+		d = Physics.sub(b, a)
+		len = Physics.length(d)
+		if len > 0.0 {
+			$dir = Physics.scale(d, 1.0 / len)
+		}
+		if $left <= len {
+			$pos = Physics.add(a, Physics.scale($dir, $left))
+			$done = Bool.True
+		} else {
+			$left = $left - len
+			$pos = b
+		}
+		$i = $i + 1
+	}
+	($pos, $dir)
+}
+
+path_len : List(V) -> F64
+path_len = |path| {
+	var $total = 0.0
+	var $i = 0
+	while $i + 1 < path.len() {
+		a = path.get($i) ?? { x: 0.0, y: 0.0 }
+		b = path.get($i + 1) ?? a
+		$total = $total + Physics.length(Physics.sub(b, a))
+		$i = $i + 1
+	}
+	$total
+}
+
+## Letters of a target bank as one word ("T E R M" -> "TERM").
+word : List(Str) -> Str
+word = |names| Str.join_with(names, "")
+
 # ---------- input ----------
 
 apply_event : State, Game.Event -> State
@@ -331,6 +464,9 @@ apply_event = |g, event| {
 		Release(key) => release({ ..g, exact_keys: Bool.True }, key)
 	}
 }
+
+between_games : State -> Bool
+between_games = |g| g.mode == Attract or g.mode == GameOver
 
 press : State, Game.Key -> State
 press = |g, key| {
@@ -353,6 +489,8 @@ press = |g, key| {
 		LeftFlip => if g.paused g else flip_press(g, Left)
 		RightFlip => if g.paused g else flip_press(g, Right)
 		Nudge => if g.mode == Playing and !g.paused nudge(g) else g
+		PrevTable => if between_games(g) switch_table(g, g.table_index + Table.count - 1, -1) else g
+		NextTable => if between_games(g) switch_table(g, g.table_index + 1, 1) else g
 	}
 }
 
@@ -389,23 +527,28 @@ flip_press = |g, side| {
 			Left => "left"
 			Right => "right"
 		}
-		note(emit({ ..g1, lanes_lit: rotated, skill_lane: rotate_index(g1.skill_lane, side) }, Flip), "event flip side=${side_name}")
+		next_skill = rotate_index(g1.skill_lane, g1.lanes_lit.len(), side)
+		note(emit({ ..g1, lanes_lit: rotated, skill_lane: next_skill }, Flip), "event flip side=${side_name}")
 	} else {
 		g1
 	}
 }
 
 rotate_left : List(Bool) -> List(Bool)
-rotate_left = |l| l.drop_first(1).append(l.first() ?? Bool.False)
+rotate_left = |l| if l.is_empty() l else l.drop_first(1).append(l.first() ?? Bool.False)
 
 rotate_right : List(Bool) -> List(Bool)
-rotate_right = |l| l.drop_last(1).prepend(l.last() ?? Bool.False)
+rotate_right = |l| if l.is_empty() l else l.drop_last(1).prepend(l.last() ?? Bool.False)
 
-rotate_index : U64, [Left, Right] -> U64
-rotate_index = |i, side| {
-	match side {
-		Left => if i == 0 2 else i - 1
-		Right => if i == 2 0 else i + 1
+rotate_index : U64, U64, [Left, Right] -> U64
+rotate_index = |i, n, side| {
+	if n == 0 {
+		0
+	} else {
+		match side {
+			Left => if i == 0 n - 1 else i - 1
+			Right => if i + 1 >= n 0 else i + 1
+		}
 	}
 }
 
@@ -428,11 +571,32 @@ nudge = |g| {
 
 # ---------- game flow ----------
 
+## Change tables between games, keeping high scores and starting the slide.
+switch_table : State, U64, I64 -> State
+switch_table = |g, index, dir| {
+	i = index % Table.count
+	fresh = Game.new_on(0, i)
+	g1 = {
+		..fresh,
+		rng: g.rng,
+		time: g.time,
+		frame: g.frame,
+		highs: g.highs,
+		high: g.highs.get(i) ?? 0,
+		exact_keys: g.exact_keys,
+		transition_from: g.table_index,
+		transition_dir: dir,
+		transition_start: g.time,
+		message: fresh.table.blurb,
+		message_until: 1.0e9,
+	}
+	note(emit(g1, TableSwitch), "event table index=${i.to_str()} name=${fresh.table.name}")
+}
+
 start_game : State -> State
 start_game = |g| {
-	fresh = { ..Game.new(g.rng), frame: g.frame }
-	(u, g1) = rand({ ..fresh, high: g.high, exact_keys: g.exact_keys, rng: g.rng })
-	lane = if u < 0.34 0 else if u < 0.67 1 else 2
+	fresh = { ..Game.new_on(0, g.table_index), frame: g.frame }
+	(lane, g1) = rand_index({ ..fresh, high: g.high, highs: g.highs, exact_keys: g.exact_keys, rng: g.rng }, fresh.table.lanes.len())
 	g2 = {
 		..g1,
 		mode: Playing,
@@ -440,39 +604,42 @@ start_game = |g| {
 		ball_number: 1,
 		on_plunger: Bool.True,
 		skill_lane: lane,
-		skill_live: Bool.True,
+		skill_live: !fresh.table.lanes.is_empty(),
 		message: "BALL 1",
 		message_until: g.time + 2.0,
 	}
-	note(emit(g2, Begin), "event start seed_state=${g2.rng.to_str()}")
+	note(emit(g2, Begin), "event start seed_state=${g2.rng.to_str()} table=${fresh.table.name}")
 }
 
 next_ball : State -> State
 next_ball = |g| {
 	if g.ball_number >= Game.balls_per_game {
 		high = if g.score > g.high g.score else g.high
-		over = { ..g, mode: GameOver, high, mode_until: g.time + 1.5, message: "GAME OVER", message_until: 1.0e12 }
+		highs = set_at(g.highs, g.table_index, high)
+		over = { ..g, mode: GameOver, high, highs, mode_until: g.time + 1.5, message: "GAME OVER", message_until: 1.0e12 }
 		note(emit(over, GameOver), "event game_over score=${g.score.to_str()} high=${high.to_str()}")
 	} else {
 		n = g.ball_number + 1
-		(u, g1) = rand(g)
-		lane = if u < 0.34 0 else if u < 0.67 1 else 2
+		(lane, g1) = rand_index(g, g.table.lanes.len())
 		g2 = {
 			..g1,
 			mode: Playing,
 			ball_number: n,
 			on_plunger: Bool.True,
 			balls: [],
+			riders: [],
 			tilt: 0.0,
 			save_spent: Bool.False,
 			tilted: Bool.False,
 			mult: 1,
+			cars: 0,
 			bumpers_hit: 0,
 			targets_hit: 0,
 			lanes_hit: 0,
+			ramps_hit: 0,
 			combo: 0,
 			skill_lane: lane,
-			skill_live: Bool.True,
+			skill_live: !g.table.lanes.is_empty(),
 		}
 		note(announce(g2, "BALL ${n.to_str()}", 2.0), "event ball ball=${n.to_str()} score=${g.score.to_str()}")
 	}
@@ -485,7 +652,7 @@ ball_lost = |g| {
 		saved = { ..g, on_plunger: Bool.True, save_until: 0.0, save_spent: Bool.True, multiball: Bool.False }
 		note(emit(announce(saved, "BALL SAVED", 2.0), Saved), "event saved ball=${g.ball_number.to_str()}")
 	} else {
-		bonus = if g.tilted 0 else (g.bumpers_hit * 20 + g.targets_hit * 150 + g.lanes_hit * 100 + 500) * g.mult
+		bonus = if g.tilted 0 else (g.bumpers_hit * 20 + g.targets_hit * 150 + g.lanes_hit * 100 + g.ramps_hit * 400 + 500) * g.mult
 		over = {
 			..g,
 			mode: BallOver,
@@ -507,7 +674,7 @@ launch = |g| {
 	power = if g.exact_keys or g.pull_repeats > 0 Physics.clamp((g.pull_last - g.pull_start + 0.05) / plunger_full_time, 0.0, 1.0) else 1.0
 	power2 = if g.exact_keys Physics.clamp((g.time - g.pull_start) / plunger_full_time, 0.0, 1.0) else power
 	(u, g1) = rand(g)
-	speed = (78.0 + 66.0 * power2) * (0.985 + 0.03 * u)
+	speed = (78.0 + 66.0 * power2) * (0.985 + 0.03 * u) * launch_scale(g1.table)
 	ball = { pos: Table.plunger_rest, vel: { x: 0.0, y: -speed }, r: Table.ball_radius }
 	save = if g1.save_until > g1.time g1.save_until else if g1.save_spent 0.0 else g1.time + ball_save_time
 	g2 = { ..g1, balls: g1.balls.append(ball), on_plunger: Bool.False, pulling: Bool.False, pull: 0.0, save_until: save }
@@ -531,9 +698,10 @@ play = |g0, dt| {
 	while $g.acc >= Game.substep {
 		$g = substep_all({ ..$g, acc: $g.acc - Game.substep })
 	}
-	g3 = update_saucer($g)
-	g4 = unstick(g3, dt)
-	if g4.balls.is_empty() and g4.saucer_hold.is_empty() and !g4.on_plunger ball_lost(g4) else g4
+	g3 = update_riders(update_saucer($g), dt)
+	g4 = reset_drops(g3)
+	g5 = unstick(g4, dt)
+	if g5.balls.is_empty() and g5.saucer_hold.is_empty() and g5.riders.is_empty() and !g5.on_plunger ball_lost(g5) else g5
 }
 
 update_plunger : State -> State
@@ -547,11 +715,8 @@ update_plunger = |g| {
 	}
 }
 
-flipper_target : State, Game.Flipper, F64, F64 -> F64
-flipper_target = |g, f, rest, up| {
-	held = (if g.exact_keys f.down else f.until > g.time) and !g.tilted and g.mode == Playing
-	if held up else rest
-}
+held_now : State, Game.Flipper -> Bool
+held_now = |g, f| (if g.exact_keys f.down else f.until > g.time) and !g.tilted and g.mode == Playing
 
 move_flipper : Game.Flipper, F64, F64, F64 -> Game.Flipper
 move_flipper = |f, target, dt, up_is_negative| {
@@ -563,19 +728,39 @@ move_flipper = |f, target, dt, up_is_negative| {
 	{ ..f, angle: f.angle + step, omega: step / dt }
 }
 
+## Move the upper flippers with their side's main flipper key state.
+move_uppers : State, F64, Bool -> List(Game.Flipper)
+move_uppers = |g, dt, settle| {
+	var $out = []
+	var $i = 0
+	for spec in g.table.uppers {
+		f = g.uppers.get($i) ?? { angle: spec.rest, omega: 0.0, down: Bool.False, until: 0.0 }
+		held = !settle and (
+			match spec.side {
+				Left => held_now(g, g.left)
+				Right => held_now(g, g.right)
+			}
+		)
+		dir = if spec.up < spec.rest 1.0 else -1.0
+		$out = $out.append(move_flipper(f, if held spec.up else spec.rest, dt, dir))
+		$i = $i + 1
+	}
+	$out
+}
+
 settle_flippers : State, F64 -> State
 settle_flippers = |g, dt| {
 	left = move_flipper(g.left, Table.left_rest, dt, 1.0)
 	right = move_flipper(g.right, Table.right_rest, dt, -1.0)
-	{ ..g, left, right }
+	{ ..g, left, right, uppers: move_uppers(g, dt, Bool.True) }
 }
 
 substep_all : State -> State
 substep_all = |g0| {
 	dt = Game.substep
-	left = move_flipper(g0.left, flipper_target(g0, g0.left, Table.left_rest, Table.left_up), dt, 1.0)
-	right = move_flipper(g0.right, flipper_target(g0, g0.right, Table.right_rest, Table.right_up), dt, -1.0)
-	g1 = { ..g0, left, right }
+	left = move_flipper(g0.left, if held_now(g0, g0.left) Table.left_up else Table.left_rest, dt, 1.0)
+	right = move_flipper(g0.right, if held_now(g0, g0.right) Table.right_up else Table.right_rest, dt, -1.0)
+	g1 = { ..g0, left, right, uppers: move_uppers(g0, dt, Bool.False) }
 	var $g = { ..g1, balls: [] }
 	for ball in g1.balls {
 		$g = step_ball($g, ball)
@@ -586,11 +771,12 @@ substep_all = |g0| {
 ## One ball, one substep: integrate, resolve contacts, then sensors.
 step_ball : State, Game.Ball -> State
 step_ball = |g, b0| {
-	b1 = Physics.integrate(b0, gravity, Game.substep, max_speed)
+	table = g.table
+	b1 = Physics.integrate(b0, table.gravity, Game.substep, max_speed)
 	# Static walls.
 	var $b = b1
 	var $wall_impact = 0.0
-	for w in Table.walls {
+	for w in table.walls {
 		c = Physics.collide_segment($b, w, wall_restitution)
 		if c.hit {
 			$b = c.ball
@@ -614,7 +800,7 @@ step_ball = |g, b0| {
 	}
 	# Pop bumpers.
 	var $bi = 0
-	for bumper in Table.bumpers {
+	for bumper in table.bumpers {
 		c = Physics.collide_circle($b, bumper.pos, bumper.r, 0.55, bumper_kick)
 		if c.hit {
 			$b = c.ball
@@ -627,7 +813,7 @@ step_ball = |g, b0| {
 	}
 	# Slingshots.
 	var $si = 0
-	for sling in Table.slings {
+	for sling in table.slings {
 		c0 = Physics.collide_segment($b, sling, wall_restitution)
 		if c0.hit {
 			if c0.impact > 9.0 {
@@ -641,9 +827,9 @@ step_ball = |g, b0| {
 		}
 		$si = $si + 1
 	}
-	# Stand-up targets T, E, R, M.
+	# Stand-up targets.
 	var $ti = 0
-	for target in Table.standups {
+	for target in table.standups {
 		c = Physics.collide_segment($b, target, 0.5)
 		if c.hit {
 			$b = c.ball
@@ -652,6 +838,20 @@ step_ball = |g, b0| {
 			}
 		}
 		$ti = $ti + 1
+	}
+	# Drop targets (solid until knocked down).
+	var $di = 0
+	for drop in table.drops {
+		if !get_bool($g.drops_down, $di) {
+			c = Physics.collide_segment($b, drop, 0.45)
+			if c.hit {
+				$b = c.ball
+				if c.impact > 6.0 {
+					$g = drop_target($g, $di, $b.pos)
+				}
+			}
+		}
+		$di = $di + 1
 	}
 	# Flippers.
 	lt = Game.flipper_tip(Table.left_pivot, $g.left.angle)
@@ -664,6 +864,16 @@ step_ball = |g, b0| {
 	if rc.hit {
 		$b = rc.ball
 	}
+	var $ui = 0
+	for spec in table.uppers {
+		f = $g.uppers.get($ui) ?? { angle: spec.rest, omega: 0.0, down: Bool.False, until: 0.0 }
+		tip = Game.tip_at(spec.pivot, f.angle, spec.length)
+		uc = Physics.collide_flipper($b, spec.pivot, tip, Table.flipper_thickness * 0.85, f.omega, flipper_restitution)
+		if uc.hit {
+			$b = uc.ball
+		}
+		$ui = $ui + 1
+	}
 	sensors($g, $b)
 }
 
@@ -672,14 +882,39 @@ hit_target = |g, i, pos| {
 	lit = set_at(g.targets_lit, i, Bool.True)
 	g1 = award({ ..g, targets_lit: lit, targets_hit: g.targets_hit + 1, target_flash: set_at(g.target_flash, i, g.time) }, 500, pos)
 	if lit.all(|x| x) {
-		g2 = { ..g1, targets_lit: [Bool.False, Bool.False, Bool.False, Bool.False], lock_lit: Bool.True, score: g1.score + 2500 * g1.mult }
-		note(emit(announce(g2, "TERM COMPLETE - SAUCER LIT", 2.5), TargetsDone), "event targets_complete score=${g2.score.to_str()}")
+		g2 = { ..g1, targets_lit: List.repeat(Bool.False, lit.len()), lock_lit: Bool.True, score: g1.score + 2500 * g1.mult }
+		label = "${word(g.table.standup_names)} COMPLETE - SAUCER LIT"
+		note(emit(announce(g2, label, 2.5), TargetsDone), "event targets_complete score=${g2.score.to_str()}")
 	} else {
 		emit(g1, Target)
 	}
 }
 
-## Rollover lanes, saucer capture, plunger-lane rest and drain detection.
+## Knock down one drop target; a full bank scores big, lights the lock and
+## raises the jackpot, then resets after a short delay.
+drop_target : State, U64, V -> State
+drop_target = |g, i, pos| {
+	down = set_at(g.drops_down, i, Bool.True)
+	g1 = award({ ..g, drops_down: down, drop_flash: set_at(g.drop_flash, i, g.time), targets_hit: g.targets_hit + 1 }, 750, pos)
+	if down.all(|x| x) {
+		g2 = { ..g1, score: g1.score + 5000 * g1.mult, jackpot: g1.jackpot + 5000, lock_lit: Bool.True, drop_reset_at: g.time + drop_reset_delay }
+		label = "${word(g.table.drop_names)} COMPLETE"
+		note(emit(announce(g2, label, 2.5), DropsDone), "event drops_complete score=${g2.score.to_str()}")
+	} else {
+		note(emit(g1, Drop), "event drop index=${i.to_str()}")
+	}
+}
+
+reset_drops : State -> State
+reset_drops = |g| {
+	if g.drop_reset_at > 0.0 and g.time >= g.drop_reset_at {
+		{ ..g, drops_down: List.repeat(Bool.False, g.drops_down.len()), drop_reset_at: 0.0 }
+	} else {
+		g
+	}
+}
+
+## Rollover lanes, ramps, saucers, plunger-lane rest and drain detection.
 sensors : State, Game.Ball -> State
 sensors = |g, b| {
 	if b.pos.y > Table.drain_y {
@@ -687,13 +922,55 @@ sensors = |g, b| {
 	} else if b.pos.x > Table.lane_left and b.pos.y > 71.5 and Physics.length(b.vel) < 4.0 and !g.on_plunger {
 		{ ..g, on_plunger: Bool.True }
 	} else {
-		dsq = Physics.sub(b.pos, Table.saucer)
-		speed = Physics.length(b.vel)
-		if Physics.length(dsq) < Table.saucer_radius and speed < 95.0 and g.time >= g.saucer_cool {
-			capture_saucer(g, b)
-		} else {
-			lanes_check({ ..g, balls: g.balls.append(b) }, b)
+		match ramp_entered(g.table, b) {
+			Ok(i) => { ..g, riders: g.riders.append({ ramp: i, s: 0.0 }) }
+			Err(_) =>
+				match saucer_at(g, b) {
+					Ok(i) => capture_saucer(g, b, i)
+					Err(_) => lanes_check({ ..g, balls: g.balls.append(b) }, b)
+				}
 		}
+	}
+}
+
+## A ball moving fast enough into a ramp mouth, heading up the ramp, rides it.
+ramp_entered : Table.Layout, Game.Ball -> Try(U64, [None])
+ramp_entered = |table, b| {
+	speed = Physics.length(b.vel)
+	var $found = 0
+	var $hit = Bool.False
+	var $i = 0
+	for ramp in table.ramps {
+		a = ramp.path.get(0) ?? ramp.entry
+		c = ramp.path.get(1) ?? a
+		dir = Physics.sub(c, a)
+		near = Physics.length(Physics.sub(b.pos, ramp.entry)) < ramp.entry_r
+		if near and speed >= ramp.min_speed and Physics.dot(b.vel, dir) > 0.0 and !$hit {
+			$found = $i
+			$hit = Bool.True
+		}
+		$i = $i + 1
+	}
+	if $hit Ok($found) else Err(None)
+}
+
+saucer_at : State, Game.Ball -> Try(U64, [None])
+saucer_at = |g, b| {
+	speed = Physics.length(b.vel)
+	if speed >= 95.0 or g.time < g.saucer_cool {
+		Err(None)
+	} else {
+		var $found = 0
+		var $hit = Bool.False
+		var $i = 0
+		for s in g.table.saucers {
+			if Physics.length(Physics.sub(b.pos, s)) < Table.saucer_radius and !$hit {
+				$found = $i
+				$hit = Bool.True
+			}
+			$i = $i + 1
+		}
+		if $hit Ok($found) else Err(None)
 	}
 }
 
@@ -701,7 +978,7 @@ lanes_check : State, Game.Ball -> State
 lanes_check = |g, b| {
 	var $g = g
 	var $i = 0
-	for lane in Table.lanes {
+	for lane in g.table.lanes {
 		if Physics.length(Physics.sub(b.pos, lane)) < Table.lane_sensor_radius and $g.time >= get_f64($g.lane_cool, $i) {
 			$g = rollover($g, $i, lane)
 		}
@@ -719,27 +996,74 @@ rollover = |g, i, pos| {
 	g2 = award({ ..g1, lanes_lit: lit, lanes_hit: g1.lanes_hit + 1 }, 250, pos)
 	if lit.all(|x| x) {
 		mult = if g2.mult < 5 g2.mult + 1 else 5
-		g3 = { ..g2, lanes_lit: [Bool.False, Bool.False, Bool.False], mult, score: g2.score + 1000 }
+		g3 = { ..g2, lanes_lit: List.repeat(Bool.False, lit.len()), mult, score: g2.score + 1000 }
 		note(emit(announce(g3, "BONUS X${mult.to_str()}", 2.0), LanesDone), "event lanes_complete mult=${mult.to_str()}")
 	} else {
 		emit(g2, Rollover)
 	}
 }
 
-capture_saucer : State, Game.Ball -> State
-capture_saucer = |g, b| {
-	held = { ..b, pos: Table.saucer, vel: { x: 0.0, y: 0.0 } }
+## Advance ramp riders along their paths; a finished ride scores and drops
+## the ball onto the ramp's exit (usually an inlane).
+update_riders : State, F64 -> State
+update_riders = |g, dt| {
+	var $g = { ..g, riders: [] }
+	for r in g.riders {
+		ramp = g.table.ramps.get(r.ramp) ?? empty_ramp
+		s = r.s + Game.ride_speed * dt
+		total = path_len(ramp.path)
+		if s >= total {
+			(pos, dir) = along(ramp.path, total)
+			ball = { pos, vel: Physics.scale(dir, ramp.exit_speed), r: Table.ball_radius }
+			$g = ramp_award({ ..$g, balls: $g.balls.append(ball) }, ramp, pos)
+		} else {
+			$g = { ..$g, riders: $g.riders.append({ ..r, s }) }
+		}
+	}
+	$g
+}
+
+ramp_award : State, Table.Ramp, V -> State
+ramp_award = |g, ramp, pos| {
+	combo = if g.time < g.ramp_combo_until g.ramp_combo + 1 else 1
+	g1 = award({ ..g, ramp_combo: combo, ramp_combo_until: g.time + ramp_combo_window, ramps_hit: g.ramps_hit + 1, jackpot: g.jackpot + 2500 }, 1000 * combo, pos)
+	g2 = if g.multiball {
+		half = g1.jackpot // 2
+		popup(note({ ..g1, score: g1.score + half }, "event super_jackpot value=${half.to_str()}"), pos, "SUPER JACKPOT")
+	} else {
+		g1
+	}
+	need = g.table.ramp_cars_for_lock
+	g3 = if need > 0 and !g2.multiball {
+		cars = g2.cars + 1
+		if cars >= need and !g2.lock_lit {
+			announce({ ..g2, cars: 0, lock_lit: Bool.True }, "ALL ABOARD - SAUCER LIT", 2.5)
+		} else {
+			announce({ ..g2, cars }, "CAR ${cars.to_str()} ADDED", 1.5)
+		}
+	} else if combo >= 2 {
+		announce(g2, "${ramp.name} COMBO X${combo.to_str()}", 1.5)
+	} else {
+		announce(g2, ramp.name, 1.2)
+	}
+	note(emit(g3, Ramp(combo)), "event ramp name=${ramp.name} combo=${combo.to_str()}")
+}
+
+capture_saucer : State, Game.Ball, U64 -> State
+capture_saucer = |g, b, i| {
+	spot = g.table.saucers.get(i) ?? b.pos
+	held = { ball: { ..b, pos: spot, vel: { x: 0.0, y: 0.0 } }, saucer: i }
 	g1 = { ..g, saucer_hold: g.saucer_hold.append(held) }
-	if g.lock_lit and !g.multiball {
+	if i == 0 and g.lock_lit and !g.multiball {
 		g2 = { ..g1, lock_lit: Bool.False, multiball: Bool.True, saucer_until: g.time + 1.8, score: g1.score + 5000 * g1.mult }
 		g3 = auto_launch(note(emit(announce(g2, "MULTIBALL!", 3.0), Multiball), "event multiball score=${g2.score.to_str()}"))
 		{ ..g3, save_until: g3.time + 12.0 }
-	} else if g.multiball {
+	} else if i == 0 and g.multiball {
 		jp = g.jackpot
 		g2 = { ..g1, saucer_until: g.time + 0.9, jackpot: jp + 5000, score: g1.score + jp }
-		popup(note(emit(announce(g2, "JACKPOT ${jp.to_str()}", 2.5), Jackpot), "event jackpot value=${jp.to_str()}"), Table.saucer, "JACKPOT")
+		popup(note(emit(announce(g2, "JACKPOT ${jp.to_str()}", 2.5), Jackpot), "event jackpot value=${jp.to_str()}"), spot, "JACKPOT")
 	} else {
-		g2 = award({ ..g1, saucer_until: g.time + 0.7 }, 250, Table.saucer)
+		g2 = award({ ..g1, saucer_until: g.time + 0.7 }, 250, spot)
 		emit(g2, Saucer)
 	}
 }
@@ -750,9 +1074,10 @@ update_saucer = |g| {
 		g
 	} else {
 		var $g = { ..g, saucer_hold: [], saucer_cool: g.time + 0.8 }
-		for b in g.saucer_hold {
+		for h in g.saucer_hold {
 			(u, g1) = rand($g)
-			out = { ..b, pos: { x: Table.saucer.x, y: Table.saucer.y - 2.5 }, vel: { x: (u - 0.5) * 50.0, y: -70.0 } }
+			spot = g.table.saucers.get(h.saucer) ?? h.ball.pos
+			out = { ..h.ball, pos: { x: spot.x, y: spot.y - 2.5 }, vel: { x: (u - 0.5) * 50.0, y: -70.0 } }
 			$g = { ..g1, balls: g1.balls.append(out) }
 		}
 		emit($g, Saucer)
@@ -778,3 +1103,12 @@ unstick = |g, dt| {
 		{ ..g, still_time: 0.0 }
 	}
 }
+
+## Plunger strength per table: steeper tables (stronger gravity) get a
+## proportionally stronger plunger, so every launch power reaches the same
+## apex height (v^2 / 2g) as on the 72-gravity classic table.
+launch_scale : Table.Layout -> F64
+launch_scale = |table| (table.gravity / reference_gravity).sqrt()
+
+reference_gravity : F64
+reference_gravity = 72.0

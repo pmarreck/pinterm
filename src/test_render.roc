@@ -1,4 +1,6 @@
 import Render
+import Game
+import Table
 import TestKit
 
 main! = |_args| Ok({})
@@ -25,7 +27,7 @@ expect !Render.layout(20, 8).ok
 render_rows : U64, U64, Render.Opts -> List(Str)
 render_rows = |cols, rows, opts| {
 	lay = Render.layout(cols, rows)
-	cells = Render.compose(started, opts, lay, Render.static_pixels(lay))
+	cells = Render.compose(started, opts, lay, Render.static_pixels(lay, started.table), [])
 	{
 		var $out = []
 		var $r = 0
@@ -50,7 +52,7 @@ expect {
 expect {
 	lay = Render.layout(100, 40)
 	opts = { ..color_opts, ascii: Bool.True, color: 3 }
-	cells = Render.compose(started, opts, lay, Render.static_pixels(lay))
+	cells = Render.compose(started, opts, lay, Render.static_pixels(lay, started.table), [])
 	bytes = Render.encode([], cells, 100, 3)
 	bytes.all(|b| b < 128) and cells.any(|c| c.cp == '@')
 }
@@ -59,7 +61,7 @@ expect {
 expect {
 	lay = Render.layout(100, 40)
 	opts = { ..color_opts, color: 3 }
-	cells = Render.compose(started, opts, lay, Render.static_pixels(lay))
+	cells = Render.compose(started, opts, lay, Render.static_pixels(lay, started.table), [])
 	text = Str.from_utf8_lossy(Render.encode([], cells, 100, 3))
 	!text.contains("38;2;") and !text.contains("48;5;") and !text.contains(";4")
 }
@@ -67,7 +69,7 @@ expect {
 # Diff encoding: an unchanged frame emits only the sync wrapper; one changed cell is small.
 expect {
 	lay = Render.layout(100, 40)
-	cells = Render.compose(started, color_opts, lay, Render.static_pixels(lay))
+	cells = Render.compose(started, color_opts, lay, Render.static_pixels(lay, started.table), [])
 	same = Render.encode(cells, cells, 100, 0)
 	changed = cells.set(5, { cp: 'X', fg: 0xFFFFFF, bg: 0 }) ?? cells
 	one = Render.encode(cells, changed, 100, 0)
@@ -77,14 +79,14 @@ expect {
 # Tiny terminals get a readable request to enlarge instead of a broken table.
 expect {
 	lay = Render.layout(30, 10)
-	cells = Render.compose(started, color_opts, lay, [])
+	cells = Render.compose(started, color_opts, lay, [], [])
 	Render.row_text(cells, 30, 0).contains("Enlarge")
 }
 
 # Full redraws position the cursor at every row start (autowrap is disabled by the host).
 expect {
 	lay = Render.layout(60, 20)
-	cells = Render.compose(started, color_opts, lay, Render.static_pixels(lay))
+	cells = Render.compose(started, color_opts, lay, Render.static_pixels(lay, started.table), [])
 	text = Str.from_utf8_lossy(Render.encode([], cells, 60, 0))
 	text.contains("\u(1b)[2;1H") and text.contains("\u(1b)[20;1H")
 }
@@ -94,4 +96,60 @@ expect {
 	lay = Render.layout(220, 60)
 	gap = lay.px - (lay.ox + lay.tw)
 	gap <= 3 and lay.ox > 10
+}
+
+# Table switch slide: a pure wipe between two rasters. Progress 0 is the old
+# table, 1 the new one; mid-way the old table's columns are shifted by the
+# eased offset (smoothstep(0.5) = 0.5) in the swipe direction.
+expect {
+	lay = Render.layout(80, 24)
+	old = Render.static_pixels(lay, Table.at(0))
+	new = Render.static_pixels(lay, Table.at(1))
+	half = lay.pw // 2
+	left = Render.slide(old, new, lay, 0.5, 1)
+	right = Render.slide(old, new, lay, 0.5, -1)
+	row = lay.pw * (lay.ph // 2)
+	ends = Render.slide(old, new, lay, 0.0, 1) == old and Render.slide(old, new, lay, 1.0, 1) == new and Render.slide(old, new, lay, 0.0, -1) == old
+	shifted = left.get(row) == old.get(row + half) and left.get(row + lay.pw - half) == new.get(row) and right.get(row + half) == old.get(row) and right.get(row) == new.get(row + lay.pw - half)
+	ends and shifted and left != old and left != new and left.len() == old.len()
+}
+
+# Mid-slide the screen differs from the plain new table and the layout's
+# letters stay hidden; once finished the old raster is no longer consulted.
+expect {
+	lay = Render.layout(80, 24)
+	g0 = TestKit.press(Game.new(42), NextTable)
+	old = Render.static_pixels(lay, Table.at(0))
+	new = Render.static_pixels(lay, Table.at(1))
+	view = |g, from| Render.compose(g, color_opts, lay, new, from)
+	mid = TestKit.run_frames(g0, 13)
+	done = TestKit.run_frames(g0, 40)
+	in_table = |i| i % lay.cols >= lay.ox and i % lay.cols < lay.ox + lay.tw and i // lay.cols >= lay.oy and i // lay.cols < lay.oy + lay.th
+	letters = |cells| (Table.at(1)).lane_names.all(|name| cells.map_with_index(|c, i| in_table(i) and c.cp == (name.to_utf8().first() ?? 0).to_u32()).any(|hit| hit))
+	view(mid, old) != view(mid, []) and !letters(view(mid, old)) and letters(view(done, old)) and view(done, old) == view(done, [])
+}
+
+# The help overlay explains the current table's own rules and the table keys.
+help_text : Game.State -> Str
+help_text = |g| {
+	lay = Render.layout(100, 40)
+	cells = Render.compose(g, { ..color_opts, help: Bool.True }, lay, Render.static_pixels(lay, g.table), [])
+	var $s = ""
+	var $r = 0
+	while $r < 40 {
+		$s = Str.concat($s, Render.row_text(cells, 100, $r))
+		$r = $r + 1
+	}
+	$s
+}
+
+expect {
+	classic = help_text(Game.new(42))
+	orbital = help_text(Game.new_on(42, 1))
+	iron = help_text(Game.new_on(42, 2))
+	grave = help_text(Game.new_on(42, 3))
+	classic.contains("P-I-N lanes") and classic.contains("T-E-R-M") and classic.contains("[ ] new table")
+		and orbital.contains("W-A-R-P lanes") and orbital.contains("I-G-N-I-T-E") and !orbital.contains("T-E-R-M")
+			and iron.contains("C-O-A-L") and iron.contains("4 ramps")
+				and grave.contains("R-I-P") and grave.contains("B-O-O lanes")
 }

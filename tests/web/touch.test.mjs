@@ -1,7 +1,7 @@
 // Unit tests for the touch-control state machine (pure, injected clock).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createTouchControls, ZONE, PULL_FULL_FRACTION, PLUNGER_FULL_MS, STROKE_MIN_PX } from "../../web/site/touch-controls.js";
+import { createTouchControls, ZONE, PULL_FULL_FRACTION, PLUNGER_FULL_MS, STROKE_MIN_PX, SWIPE_MIN_PX } from "../../web/site/touch-controls.js";
 
 const W = 1000, H = 800;
 const mk = () => createTouchControls({ width: W, height: H });
@@ -71,7 +71,7 @@ test("upward and sideways strokes do not pull; flipper touches never pull", () =
 	const t = mk();
 	t.start(1, 500, 400, 0);
 	assert.deepEqual(keys(t.move(1, 500, 300, 10)), []);
-	assert.deepEqual(keys(t.move(1, 800, 300, 20)), []);
+	assert.deepEqual(keys(t.move(1, 650, 300, 20)), []);
 	assert.deepEqual(keys(t.end(1, 30)), []);
 	t.start(2, 50, 700, 40);
 	assert.deepEqual(keys(t.move(2, 50, 799, 50)), []);
@@ -105,4 +105,33 @@ test("cancelAll (e.g. window blur) releases every held flipper and launches a pu
 	assert.deepEqual(keys(t.cancelAll(20)).sort(), ["/:up", "z:up"]);
 	assert.deepEqual(keys(t.tick(10 + PLUNGER_FULL_MS)), [" :up"]);
 	assert.deepEqual(keys(t.cancelAll(9999)), [], "nothing left to release");
+});
+
+// A finished stroke (start, one move, end) from mid-screen by (dx, dy).
+function stroke(t, dx, dy, id = 1) {
+	const x0 = 500, y0 = 150;
+	return keys([...t.start(id, x0, y0, 0), ...t.move(id, x0 + dx, y0 + dy, 50), ...t.end(id, 100), ...t.tick(5000)]);
+}
+
+test("strokes classify over a grid of vectors: swipe left/right, plunger, or nothing", () => {
+	for (let dx = -300; dx <= 300; dx += 20) {
+		for (let dy = -300; dy <= 300; dy += 20) {
+			const horizontal = Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > 2 * Math.abs(dy);
+			const plunger = dy >= STROKE_MIN_PX && dy > Math.abs(dx);
+			const want = horizontal ? (dx < 0 ? ["]:down", "]:up"] : ["[:down", "[:up"])
+				: plunger ? [" :down", " :up"] : [];
+			assert.deepEqual(stroke(mk(), dx, dy), want, `stroke ${dx},${dy}`);
+		}
+	}
+});
+
+test("a swipe in a flipper corner stays a flipper press", () => {
+	const t = mk();
+	assert.deepEqual(keys([...t.start(1, 50, 780, 0), ...t.move(1, 300, 780, 10), ...t.end(1, 20)]), ["z:down", "z:up"]);
+});
+
+test("a stroke that already pulled the plunger never becomes a swipe", () => {
+	const t = mk();
+	const out = keys([...t.start(1, 500, 100, 0), ...t.move(1, 500, 200, 10), ...t.move(1, 900, 210, 20), ...t.end(1, 30), ...t.tick(5000)]);
+	assert.deepEqual(out, [" :down", " :up"]);
 });

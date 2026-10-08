@@ -31,6 +31,20 @@ for size in 100x40 80x24; do
 	check "wasm frame bytes identical to native at $size" cmp -s "$dir/native-frames-$size" "$dir/web-frames-$size"
 done
 
+# Every alternate table, selected with ] between games (slide frames included).
+for t in 1 2 3; do
+	awk -v t="$t" 'BEGIN { for (i = 0; i < t; i++) print 2 + 3 * i " ]"; print "60 space"; print "61 release-space"; for (f = 90; f < 4000; f++) { if (f % 600 == 0) print f " space"; else if (f % 600 == 40) print f " release-space"; else if (f % 23 == 0) print f " z"; else if (f % 23 == 6) print f " release-z"; else if (f % 29 == 0) print f " /"; else if (f % 29 == 7) print f " release-slash" } }' >"$dir/script-$t"
+	capture timeout 60 "$bin" --headless --size 100x40 --frames 4000 --seed 11 --script "$dir/script-$t" --frames-out "$dir/native-frames-t$t" --log-out "$dir/native-log-t$t"
+	check "native replay on table $t" [ "$rc" -eq 0 ]
+	grep '^f=' "$dir/native-log-t$t" >"$dir/native-events-t$t"
+	capture timeout 60 node "$root/tests/web/replay.mjs" "$site/pinterm.wasm" "$dir/script-$t" 4000 100x40 11 "$dir/web-frames-t$t" "$dir/web-log-t$t"
+	check "wasm replay on table $t ($err)" [ "$rc" -eq 0 ]
+	check "replay selected table $t" grep -q "event table index=$t " "$dir/native-events-t$t"
+	check "replay launched on table $t" grep -q "event launch" "$dir/native-events-t$t"
+	check "wasm event log identical to native on table $t" cmp -s "$dir/native-events-t$t" "$dir/web-log-t$t"
+	check "wasm frame bytes identical to native on table $t" cmp -s "$dir/native-frames-t$t" "$dir/web-frames-t$t"
+done
+
 capture node --test "$root/tests/web/touch.test.mjs" "$root/tests/web/shake.test.mjs"
 check "touch and shake unit tests ($(grep -E "^. (pass|fail)" <<<"$out" | tr "\n" " "))" [ "$rc" -eq 0 ]
 
@@ -39,6 +53,7 @@ if command -v chromium >/dev/null; then
 	capture timeout 90 node "$root/tests/web/browser.mjs" "$site" check
 	check "browser session ran ($err)" [ "$rc" -eq 0 ]
 	check "start overlay shown before input" grep -q '"overlayBefore":false' <<<"$out"
+	check "] key switched to the next table" grep -q '"switched":"f=[0-9]* event table index=1 name=ORBITAL"' <<<"$out"
 	check "space started a game in the browser" grep -q '"started":"f=[0-9]* event start' <<<"$out"
 	check "held plunger launched with measured power" grep -Eq '"launched":"f=[0-9]+ event launch power=([1-9][0-9]?)"' <<<"$out"
 	check "z key flipped the left flipper" grep -q '"flipped":"f=[0-9]* event flip side=left"' <<<"$out"
@@ -47,6 +62,7 @@ if command -v chromium >/dev/null; then
 	capture timeout 90 node "$root/tests/web/browser.mjs" "$site" touch
 	check "touch session ran ($err)" [ "$rc" -eq 0 ]
 	check "tap dismissed the start overlay" grep -q '"overlayGone":true' <<<"$out"
+	check "sideways swipe switched to the next table" grep -q '"switched":"f=[0-9]* event table index=1 name=ORBITAL"' <<<"$out"
 	check "swipe started a game" grep -q '"started":"f=[0-9]* event start' <<<"$out"
 	check "full swipe launched at full power" grep -Eq '"launched":"f=[0-9]+ event launch power=(9[0-9]|100)"' <<<"$out"
 	check "lower-left tap flipped left" grep -q '"left":"f=[0-9]* event flip side=left"' <<<"$out"

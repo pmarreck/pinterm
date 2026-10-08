@@ -67,15 +67,15 @@ Render :: [].{
 		{ cols, rows, s, ox, oy, tw, th, pw: tw, ph: th * 2, panel, px: if panel ox + tw + 1 else 0, ok }
 	}
 
-	## Static table raster, recomputed only when the layout changes.
-	static_pixels : Layout -> List(U32)
-	static_pixels = |lay| {
+	## Static raster of one table, recomputed only when the layout changes.
+	static_pixels : Layout, Table.Layout -> List(U32)
+	static_pixels = |lay, table| {
 		var $buf = List.with_capacity(lay.pw * lay.ph)
 		var $py = 0
 		while $py < lay.ph {
 			var $px = 0
 			while $px < lay.pw {
-				$buf = $buf.append(static_at(lay, $px, $py))
+				$buf = $buf.append(static_at(lay, table, $px, $py))
 				$px = $px + 1
 			}
 			$py = $py + 1
@@ -83,23 +83,31 @@ Render :: [].{
 		$buf
 	}
 
-	## Compose the full screen as cells for one frame.
-	compose : Game.State, Opts, Layout, List(U32) -> List(Cell)
-	compose = |g, opts, lay, base| {
+	## Compose the full screen as cells for one frame. `from_base` is the
+	## previous table's raster while a table switch is sliding (else empty).
+	compose : Game.State, Opts, Layout, List(U32), List(U32) -> List(Cell)
+	compose = |g, opts, lay, base, from_base| {
 		blank = { cp: ' ', fg: ink_text, bg: panel_bg }
 		cells0 = List.repeat(blank, lay.cols * lay.rows)
 		if !lay.ok {
 			msg = "Enlarge terminal to ${Render.min_cols.to_str()}x${Render.min_rows.to_str()}"
 			put_text(cells0, lay.cols, 0, 0, msg, ink_warn, panel_bg)
 		} else {
-			pixels = dynamic_pixels(g, lay, base)
+			current = dynamic_pixels(g, lay, base)
+			progress = Game.transition(g)
+			pixels = if progress < 1.0 and from_base.len() == current.len() slide_pixels(from_base, current, lay, progress, g.transition_dir) else current
 			cells1 = blit_table(cells0, lay, pixels, opts)
 			cells2 = overlay_table(cells1, g, lay, opts)
 			cells3 = if lay.panel draw_panel(cells2, g, lay, opts) else draw_hud(cells2, g, lay, opts)
-			cells4 = if opts.help draw_help(cells3, lay) else cells3
+			cells4 = if opts.help draw_help(cells3, g.table, lay) else cells3
 			if opts.color == Render.color_mono or opts.ascii cells4.map(strip_color) else cells4
 		}
 	}
+
+	## Horizontal wipe between two table rasters for an animated table switch:
+	## smoothstep-eased offset, `dir` 1 slides the old table out to the left.
+	slide : List(U32), List(U32), Layout, F64, I64 -> List(U32)
+	slide = |from, into, lay, progress, dir| slide_pixels(from, into, lay, progress, dir)
 
 	## Encode the changed cells (all cells when `prev` is empty or sized
 	## differently) into ANSI bytes, wrapped in a synchronized-update block.
@@ -240,43 +248,71 @@ mix = |a, b, t| {
 world_of : Render.Layout, U64, U64 -> { x : F64, y : F64 }
 world_of = |lay, px, py| { x: (px.to_f64() + 0.5) / lay.s, y: (py.to_f64() + 0.5) / lay.s }
 
-static_at : Render.Layout, U64, U64 -> U32
-static_at = |lay, px, py| {
+static_at : Render.Layout, Table.Layout, U64, U64 -> U32
+static_at = |lay, table, px, py| {
 	p = world_of(lay, px, py)
+	pal = table.palette
 	line = Physics.clamp(0.62 / lay.s, 0.45, 1.6)
-	in_bumper = Table.bumpers.find_first(|b| Physics.length(Physics.sub(p, b.pos)) <= b.r)
+	in_bumper = table.bumpers.find_first(|b| Physics.length(Physics.sub(p, b.pos)) <= b.r)
 	match in_bumper {
 		Ok(b) => {
 			d = Physics.length(Physics.sub(p, b.pos)) / b.r
-			if d > 0.72 px_of(kind_bumper, 0xFF2A8A) else px_of(kind_bumper, mix(0xFFD23F, 0xFF7A2A, d))
+			if d > 0.72 px_of(kind_bumper, pal.bumper_ring) else px_of(kind_bumper, mix(pal.bumper_in, pal.bumper_out, d))
 		}
 		Err(_) =>
 			if in_sling(p) {
-				px_of(kind_sling, 0x2D5C00)
-			} else if Table.slings.any(|sl| seg_dist(p, sl) <= line) {
-				px_of(kind_sling, 0x9DFF00)
-			} else if Table.walls.any(|w| seg_dist(p, w) <= line) {
+				px_of(kind_sling, pal.sling_fill)
+			} else if table.slings.any(|sl| seg_dist(p, sl) <= line) {
+				px_of(kind_sling, pal.sling)
+			} else if table.walls.any(|w| seg_dist(p, w) <= line) {
 				t = Physics.clamp(p.y / Table.height, 0.0, 1.0)
-				px_of(kind_wall, mix(0x00E5FF, 0xB44DFF, t))
+				px_of(kind_wall, mix(pal.wall_top, pal.wall_bottom, t))
 			} else if seg_dist(p, Table.gate) <= line * 0.7 {
-				px_of(kind_wall, 0x3F8FA8)
-			} else if Physics.length(Physics.sub(p, Table.saucer)) <= Table.saucer_radius {
+				px_of(kind_wall, mix(pal.wall_top, 0x202020, 0.5))
+			} else if table.saucers.any(|s| Physics.length(Physics.sub(p, s)) <= Table.saucer_radius) {
 				px_of(kind_saucer, 0x1A1030)
+			} else if on_ramp(table, p, line * 1.4) {
+				px_of(kind_bg, mix(background_rgb(table, p), pal.ramp, 0.45))
 			} else {
-				background(p)
+				background(table, p)
 			}
 	}
 }
 
-background : { x : F64, y : F64 } -> U32
-background = |p| {
+## Ramp tracks are drawn as translucent lanes over the playfield.
+on_ramp : Table.Layout, { x : F64, y : F64 }, F64 -> Bool
+on_ramp = |table, p, width| {
+	table.ramps.any(
+		|ramp| {
+			var $hit = Bool.False
+			var $i = 0
+			while $i + 1 < ramp.path.len() {
+				a = ramp.path.get($i) ?? ramp.entry
+				b = ramp.path.get($i + 1) ?? a
+				if seg_dist(p, { a, b }) <= width {
+					$hit = Bool.True
+				}
+				$i = $i + 1
+			}
+			$hit
+		},
+	)
+}
+
+background_rgb : Table.Layout, { x : F64, y : F64 } -> U32
+background_rgb = |table, p| {
 	t = Physics.clamp(p.y / Table.height, 0.0, 1.0)
-	base = mix(0x0B0E24, 0x1A0A26, t)
+	mix(table.palette.bg_top, table.palette.bg_bottom, t)
+}
+
+background : Table.Layout, { x : F64, y : F64 } -> U32
+background = |table, p| {
+	base = background_rgb(table, p)
 	gx = ((floor_u64(p.x)) % 6 == 0)
 	gy = ((floor_u64(p.y)) % 6 == 0)
 	inside = p.x > 1.0 and p.x < 47.0 and p.y > 2.0
 	if inside and gx and gy {
-		px_of(kind_bg, mix(base, 0x2A3A6A, 0.5))
+		px_of(kind_bg, mix(base, table.palette.grid, 0.5))
 	} else {
 		px_of(kind_bg, base)
 	}
@@ -285,18 +321,22 @@ background = |p| {
 seg_dist : { x : F64, y : F64 }, { a : { x : F64, y : F64 }, b : { x : F64, y : F64 } } -> F64
 seg_dist = |p, s| Physics.length(Physics.sub(p, Physics.closest_on_segment(p, s.a, s.b)))
 
-## Point inside either slingshot triangle (barycentric sign test).
+## Point inside a slingshot triangle (barycentric sign test).
 in_sling : { x : F64, y : F64 } -> Bool
 in_sling = |p| {
-	tri = |a, b, c| {
-		d1 = cross(p, a, b)
-		d2 = cross(p, b, c)
-		d3 = cross(p, c, a)
-		neg = d1 < 0.0 or d2 < 0.0 or d3 < 0.0
-		pos = d1 > 0.0 or d2 > 0.0 or d3 > 0.0
-		!(neg and pos)
-	}
-	tri({ x: 8.5, y: 54.0 }, { x: 8.5, y: 62.0 }, { x: 12.5, y: 64.5 }) or tri({ x: 35.5, y: 54.0 }, { x: 35.5, y: 62.0 }, { x: 31.5, y: 64.5 })
+	Table.sling_triangles.any(
+		|tri| {
+			a = tri.get(0) ?? p
+			b = tri.get(1) ?? p
+			c = tri.get(2) ?? p
+			d1 = cross(p, a, b)
+			d2 = cross(p, b, c)
+			d3 = cross(p, c, a)
+			neg = d1 < 0.0 or d2 < 0.0 or d3 < 0.0
+			pos = d1 > 0.0 or d2 > 0.0 or d3 > 0.0
+			!(neg and pos)
+		},
+	)
 }
 
 cross = |p, a, b| (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y)
@@ -333,10 +373,12 @@ paint_disc = |buf, lay, c, r, color| paint_capsule(buf, lay, c, c, r, color)
 dynamic_pixels : Game.State, Render.Layout, List(U32) -> List(U32)
 dynamic_pixels = |g, lay, base| {
 	t = g.time
+	table = g.table
+	pal = table.palette
 	var $buf = base
 	# Bumper flashes.
 	var $i = 0
-	for b in Table.bumpers {
+	for b in table.bumpers {
 		until = g.bumper_flash.get($i) ?? 0.0
 		if until > t {
 			$buf = paint_disc($buf, lay, b.pos, b.r + 0.6, px_of(kind_bumper, 0xFFFFFF))
@@ -345,7 +387,7 @@ dynamic_pixels = |g, lay, base| {
 	}
 	# Slingshot flashes.
 	var $si = 0
-	for sl in Table.slings {
+	for sl in table.slings {
 		until = g.sling_flash.get($si) ?? 0.0
 		if until > t {
 			$buf = paint_capsule($buf, lay, sl.a, sl.b, 0.8, px_of(kind_sling, 0xF4FFD0))
@@ -354,32 +396,49 @@ dynamic_pixels = |g, lay, base| {
 	}
 	# Rollover lane lights.
 	var $li = 0
-	for lane in Table.lanes {
+	for lane in table.lanes {
 		lit = g.lanes_lit.get($li) ?? Bool.False
 		skill = g.skill_live and g.skill_lane == $li and blink(t, 4.0)
-		color = if lit px_of(kind_light_on, 0x00FF9C) else if skill px_of(kind_light_on, 0xFFFFFF) else px_of(kind_light_off, 0x24304A)
+		color = if lit px_of(kind_light_on, pal.lane_lit) else if skill px_of(kind_light_on, 0xFFFFFF) else px_of(kind_light_off, 0x24304A)
 		$buf = paint_disc($buf, lay, { x: lane.x, y: lane.y + 3.5 }, 0.9, color)
 		$li = $li + 1
 	}
 	# Stand-up targets.
 	var $ti = 0
-	for target in Table.standups {
+	for target in table.standups {
 		lit = g.targets_lit.get($ti) ?? Bool.False
 		flash = (g.target_flash.get($ti) ?? -10.0) > t - 0.2
-		color = if flash px_of(kind_light_on, 0xFFFFFF) else if lit px_of(kind_light_on, 0xFF5EF0) else px_of(kind_light_off, 0x5A2050)
+		color = if flash px_of(kind_light_on, 0xFFFFFF) else if lit px_of(kind_light_on, pal.target_lit) else px_of(kind_light_off, mix(pal.target_lit, 0x000000, 0.7))
 		$buf = paint_capsule($buf, lay, target.a, target.b, 0.55, color)
 		$ti = $ti + 1
 	}
-	# Saucer: pulses when lit or holding a ball.
-	saucer_color =
-		if !g.saucer_hold.is_empty() {
-			px_of(kind_saucer, if blink(t, 8.0) 0xFFFFFF else 0xFFEA00)
-		} else if g.lock_lit or g.multiball {
-			px_of(kind_saucer, if blink(t, 3.0) 0xFFEA00 else 0x6A5A00)
-		} else {
-			px_of(kind_saucer, 0x3A2A5A)
+	# Drop targets: drawn only while standing; a fresh hit flashes white.
+	var $di = 0
+	for drop in table.drops {
+		down = g.drops_down.get($di) ?? Bool.False
+		flash = (g.drop_flash.get($di) ?? -10.0) > t - 0.15
+		if flash {
+			$buf = paint_capsule($buf, lay, drop.a, drop.b, 0.6, px_of(kind_light_on, 0xFFFFFF))
+		} else if !down {
+			$buf = paint_capsule($buf, lay, drop.a, drop.b, 0.55, px_of(kind_light_on, pal.target_lit))
 		}
-	$buf = paint_disc($buf, lay, Table.saucer, Table.saucer_radius, saucer_color)
+		$di = $di + 1
+	}
+	# Saucers: the lock saucer pulses when lit or holding a ball.
+	var $ki = 0
+	for spot in table.saucers {
+		holding = g.saucer_hold.any(|h| h.saucer == $ki)
+		saucer_color =
+			if holding {
+				px_of(kind_saucer, if blink(t, 8.0) 0xFFFFFF else 0xFFEA00)
+			} else if $ki == 0 and (g.lock_lit or g.multiball) {
+				px_of(kind_saucer, if blink(t, 3.0) 0xFFEA00 else 0x6A5A00)
+			} else {
+				px_of(kind_saucer, 0x3A2A5A)
+			}
+		$buf = paint_disc($buf, lay, spot, Table.saucer_radius, saucer_color)
+		$ki = $ki + 1
+	}
 	# Plunger spring in the lane: compresses with pull.
 	spring_top = Table.plunger_top + 0.6 + 3.0 * g.pull
 	$buf = paint_capsule($buf, lay, { x: 45.0, y: spring_top }, { x: 45.0, y: 79.0 }, 0.7, px_of(kind_plunger, mix(0xFF6A00, 0xFF2020, g.pull)))
@@ -390,12 +449,18 @@ dynamic_pixels = |g, lay, base| {
 			$buf = paint_capsule($buf, lay, back, b.pos, 0.5, px_of(kind_trail, 0x4250C8))
 		}
 	}
-	# Flippers.
-	flip_color = if g.tilted px_of(kind_flipper, 0x5A4A20) else px_of(kind_flipper, 0xFFB000)
+	# Flippers, including any upper flippers.
+	flip_color = if g.tilted px_of(kind_flipper, 0x5A4A20) else px_of(kind_flipper, pal.flipper)
 	lt = Game.flipper_tip(Table.left_pivot, g.left.angle)
 	rt = Game.flipper_tip(Table.right_pivot, g.right.angle)
 	$buf = paint_capsule($buf, lay, Table.left_pivot, lt, Table.flipper_thickness, flip_color)
 	$buf = paint_capsule($buf, lay, Table.right_pivot, rt, Table.flipper_thickness, flip_color)
+	var $ui = 0
+	for spec in table.uppers {
+		angle = (g.uppers.get($ui) ?? { angle: spec.rest, omega: 0.0, down: Bool.False, until: 0.0 }).angle
+		$buf = paint_capsule($buf, lay, spec.pivot, Game.tip_at(spec.pivot, angle, spec.length), Table.flipper_thickness * 0.85, flip_color)
+		$ui = $ui + 1
+	}
 	$buf
 }
 
@@ -517,33 +582,48 @@ bg_at = |cells, cols, x, y| (cells.get(y * cols + x) ?? { cp: ' ', fg: 0, bg: pa
 overlay_table : List(Render.Cell), Game.State, Render.Layout, Render.Opts -> List(Render.Cell)
 overlay_table = |cells, g, lay, opts| {
 	var $cells = cells
-	# Lane letters P I N and target letters T E R M.
-	letters = ['P', 'I', 'N']
+	table = g.table
+	pal = table.palette
+	sliding = Game.transition(g) < 1.0
+	# Lane letters and stand-up / drop target letters from the layout.
 	var $li = 0
-	for lane in Table.lanes {
+	# While sliding, the letters would sit still over the moving raster; hide them.
+	for lane in (if sliding [] else table.lanes) {
 		lit = g.lanes_lit.get($li) ?? Bool.False
 		match cell_of(lay, { x: lane.x, y: lane.y - 1.0 }) {
 			Ok((x, y)) => {
-				fg = if lit 0x00FF9C.U32 else 0x3E5A7A.U32
-				$cells = set_cell($cells, lay.cols, x, y, { cp: letters.get($li) ?? '?', fg: fg.bitwise_or(bold_flag), bg: bg_at($cells, lay.cols, x, y) })
+				fg = if lit pal.lane_lit else 0x3E5A7A.U32
+				$cells = put_text($cells, lay.cols, x, y, table.lane_names.get($li) ?? "?", fg.bitwise_or(bold_flag), bg_at($cells, lay.cols, x, y))
 			}
 			Err(_) => {}
 		}
 		$li = $li + 1
 	}
-	term = ['T', 'E', 'R', 'M']
 	var $ti = 0
-	for target in Table.standups {
+	for target in (if sliding [] else table.standups) {
 		lit = g.targets_lit.get($ti) ?? Bool.False
 		mid = { x: (target.a.x + target.b.x) / 2.0 + (if target.a.x < 20.0 2.2 else -2.2), y: (target.a.y + target.b.y) / 2.0 }
 		match cell_of(lay, mid) {
 			Ok((x, y)) => {
-				fg = if lit 0xFF5EF0.U32 else 0x6A3A66.U32
-				$cells = set_cell($cells, lay.cols, x, y, { cp: term.get($ti) ?? '?', fg: fg.bitwise_or(bold_flag), bg: bg_at($cells, lay.cols, x, y) })
+				fg = if lit pal.target_lit else mix(pal.target_lit, 0x000000, unlit_dim)
+				$cells = put_text($cells, lay.cols, x, y, table.standup_names.get($ti) ?? "?", fg.bitwise_or(bold_flag), bg_at($cells, lay.cols, x, y))
 			}
 			Err(_) => {}
 		}
 		$ti = $ti + 1
+	}
+	var $di = 0
+	for drop in (if sliding [] else table.drops) {
+		down = g.drops_down.get($di) ?? Bool.False
+		mid = { x: (drop.a.x + drop.b.x) / 2.0, y: drop.a.y + 2.4 }
+		match cell_of(lay, mid) {
+			Ok((x, y)) => {
+				fg = if down mix(pal.target_lit, 0x000000, unlit_dim) else pal.target_lit
+				$cells = put_text($cells, lay.cols, x, y, table.drop_names.get($di) ?? "?", fg.bitwise_or(bold_flag), bg_at($cells, lay.cols, x, y))
+			}
+			Err(_) => {}
+		}
+		$di = $di + 1
 	}
 	# Floating score popups.
 	for p in g.popups {
@@ -557,9 +637,11 @@ overlay_table = |cells, g, lay, opts| {
 			}
 		}
 	}
-	# Balls on top of everything, including the one waiting on the plunger.
+	# Balls on top of everything: in play, held in saucers, riding ramps, and
+	# the one waiting on the plunger.
 	plunger_ball = if g.on_plunger and g.mode == Playing [{ x: Table.plunger_rest.x, y: Table.plunger_rest.y + 3.0 * g.pull }] else []
-	positions = List.concat(List.concat(g.balls.map(|b| b.pos), g.saucer_hold.map(|b| b.pos)), plunger_ball)
+	riding = g.riders.map(|r| Game.rider_pos(table, r))
+	positions = List.concat(List.concat(List.concat(g.balls.map(|b| b.pos), g.saucer_hold.map(|h| h.ball.pos)), riding), plunger_ball)
 	for pos in positions {
 		match cell_of(lay, pos) {
 			Ok((x, y)) => {
@@ -570,11 +652,14 @@ overlay_table = |cells, g, lay, opts| {
 		}
 	}
 	# Centre banner for attract / game over / pause / big messages.
+	switch_hint = "[ ] or swipe: change table"
 	banner =
-		if g.mode == Attract {
-			["P I N T E R M", "", "SPACE to launch", "h for help"]
+		if sliding {
+			[]
+		} else if g.mode == Attract {
+			[table.name, table.blurb, "", "SPACE to launch", switch_hint, "h for help"]
 		} else if g.mode == GameOver {
-			["GAME OVER", "SCORE ${Render.commas(g.score)}", "", if g.time >= g.mode_until "SPACE / n: new game" else ""]
+			["GAME OVER", "SCORE ${Render.commas(g.score)}", "", if g.time >= g.mode_until "SPACE / n: new game" else "", if g.time >= g.mode_until switch_hint else ""]
 		} else if g.paused {
 			["PAUSED", "p to resume"]
 		} else if g.mode == BallOver {
@@ -586,10 +671,13 @@ overlay_table = |cells, g, lay, opts| {
 	center_y = lay.oy + lay.th * 2 / 5
 	var $row = 0
 	for line in banner {
-		width = Str.count_utf8_bytes(line)
+		shown = truncate(line, lay.tw)
+		width = Str.count_utf8_bytes(shown)
 		x = if center_x > width / 2 center_x - width / 2 else 0
-		fg = if $row == 0 (if blink(g.time, 1.5) 0xFF4FD8.U32 else 0x00E5FF.U32) else 0xFFF2A8.U32
-		$cells = put_text($cells, lay.cols, x, center_y + $row, line, fg.bitwise_or(bold_flag), 0x100820)
+		fg = if $row == 0 (if blink(g.time, 1.5) 0xFF4FD8.U32 else pal.wall_top) else 0xFFF2A8.U32
+		if !shown.is_empty() {
+			$cells = put_text($cells, lay.cols, x, center_y + $row, shown, fg.bitwise_or(bold_flag), 0x100820)
+		}
 		$row = $row + 1
 	}
 	$cells
@@ -718,14 +806,35 @@ draw_panel = |cells, g, lay, opts| {
 	combo_text = if g.combo >= 2 and g.time < g.combo_until "COMBO x${g.combo.to_str()}" else ""
 	sound_text = if opts.sound "sound on (m)" else "sound off (m)"
 	message = if g.time < g.message_until g.message else ""
+	table = g.table
+	target_row =
+		if !table.standups.is_empty() {
+			"${Str.join_with(table.standup_names, "")} ${lights(g.targets_lit, table.standup_names)}"
+		} else if !table.drops.is_empty() {
+			"${Str.join_with(table.drop_names, "")} ${lights(g.drops_down, table.drop_names)}"
+		} else {
+			""
+		}
+	train_row =
+		if table.ramp_cars_for_lock > 0 {
+			filled = Str.repeat("#", g.cars)
+			empty = Str.repeat(".", table.ramp_cars_for_lock - (if g.cars > table.ramp_cars_for_lock table.ramp_cars_for_lock else g.cars))
+			"TRAIN [${filled}${empty}]"
+		} else if g.ramp_combo >= 2 and g.time < g.ramp_combo_until {
+			"RAMP COMBO x${g.ramp_combo.to_str()}"
+		} else {
+			""
+		}
 	rows = [
+		(2, table.name, table.palette.wall_top),
 		(3, "SCORE", ink_dim),
 		(4, Render.commas(g.score), score_color),
 		(6, "${ball_text}   X${g.mult.to_str()}", ink_text),
 		(7, "HIGH ${Render.commas(g.high)}", ink_dim),
-		(9, "LANES ${lights(g.lanes_lit, ["P", "I", "N"])}", 0x00FF9C),
-		(10, "TERM ${lights(g.targets_lit, ["T", "E", "R", "M"])}", 0xFF5EF0),
+		(9, "LANES ${lights(g.lanes_lit, table.lane_names)}", table.palette.lane_lit),
+		(10, target_row, table.palette.target_lit),
 		(11, if g.lock_lit "SAUCER LIT" else if g.multiball "MULTIBALL  JP ${Render.commas(g.jackpot)}" else "", 0xFFEA00),
+		(12, train_row, 0xFFB347),
 		(13, combo_text, 0xFF7A2A),
 		(14, save_text, 0x00E5FF),
 		(15, if g.tilted "TILT" else if g.tilt >= 1.9 "DANGER" else "", ink_warn),
@@ -741,6 +850,7 @@ draw_panel = |cells, g, lay, opts| {
 		"/ / ->    right flip",
 		"space     plunger",
 		"t / up    nudge",
+		"[ / ]     table",
 		"p pause h help q quit",
 		sound_text,
 	]
@@ -771,26 +881,43 @@ draw_hud = |cells, g, lay, _opts| {
 	put_text(c1, lay.cols, 0, 1, truncate(message, lay.cols), 0xFF4FD8, panel_bg)
 }
 
-draw_help : List(Render.Cell), Render.Layout -> List(Render.Cell)
-draw_help = |cells, lay| {
-	lines = [
-		"  HOW TO PLAY  ",
-		"",
-		" Space: pull plunger, release",
-		"   (tap = full launch)",
-		" z or Left:  left flipper",
-		" / or Right: right flipper",
-		" t or Up: nudge (3 = TILT)",
-		"",
-		" Light P-I-N lanes: bonus X",
-		" Hit T-E-R-M: lights saucer",
-		" Lit saucer: MULTIBALL",
-		" Saucer in multiball: JACKPOT",
-		" Quick hits chain COMBOS",
-		"",
-		" p pause  m mute  n new game",
-		" q quit   h close help",
-	]
+draw_help : List(Render.Cell), Table.Layout, Render.Layout -> List(Render.Cell)
+draw_help = |cells, table, lay| {
+	dashed = |names| Str.join_with(names, "-")
+	feature = |names, text| if names.is_empty() [] else [" ${text}"]
+	ramp_rule =
+		if table.ramps.is_empty() [] else if table.ramp_cars_for_lock > 0 [" ${table.ramp_cars_for_lock.to_str()} ramps: lights saucer"] else [" Ramps: combos, super jackpot"]
+	rules = List.concat(
+		List.concat(
+			List.concat(feature(table.lane_names, "Light ${dashed(table.lane_names)} lanes: bonus X"), feature(table.standup_names, "Hit ${dashed(table.standup_names)}: lights saucer")),
+			feature(table.drop_names, "Drop ${dashed(table.drop_names)}: lights saucer"),
+		),
+		ramp_rule,
+	)
+	lines = List.concat(
+		List.concat(
+			[
+				"  HOW TO PLAY  ",
+				"",
+				" Space: pull plunger, release",
+				"   (tap = full launch)",
+				" z or Left:  left flipper",
+				" / or Right: right flipper",
+				" t or Up: nudge (3 = TILT)",
+				"",
+			],
+			rules,
+		),
+		[
+			" Lit saucer: MULTIBALL",
+			" Saucer in multiball: JACKPOT",
+			" Quick hits chain COMBOS",
+			"",
+			" [ ] new table (between games)",
+			" p pause  m mute  n new game",
+			" q quit   h close help",
+		],
+	)
 	width = 32
 	x0 = if lay.cols > width (lay.cols - width) / 2 else 0
 	y0 = if lay.rows > lines.len() + 2 (lay.rows - lines.len() - 2) / 2 else 0
@@ -874,3 +1001,36 @@ ansi16 = |r, g, b| {
 	code = bit(r, 1) + bit(g, 2) + bit(b, 4)
 	if mx < 40 0 else code + bright
 }
+
+## Horizontal slide between two table rasters: the outgoing table moves out
+## while the incoming one follows it in (direction +1 = toward the left),
+## eased with smoothstep so the motion starts and settles gently.
+slide_pixels : List(U32), List(U32), Render.Layout, F64, I64 -> List(U32)
+slide_pixels = |from, into, lay, progress, dir| {
+	eased = progress * progress * (3.0 - 2.0 * progress)
+	w = lay.pw
+	off = floor_u64(eased * w.to_f64())
+	var $out = List.with_capacity(into.len())
+	var $y = 0
+	while $y < lay.ph {
+		row = $y * w
+		var $x = 0
+		while $x < w {
+			p =
+				if dir >= 0 {
+					if $x + off < w from.get(row + $x + off) ?? 0 else into.get(row + $x + off - w) ?? 0
+				} else {
+					if $x < off into.get(row + $x + w - off) ?? 0 else from.get(row + $x - off) ?? 0
+				}
+			$out = $out.append(p)
+			$x = $x + 1
+		}
+		$y = $y + 1
+	}
+	$out
+}
+
+## How far unlit target letters fade toward black; light enough to stay
+## legible over ramp tracks.
+unlit_dim : F64
+unlit_dim = 0.4

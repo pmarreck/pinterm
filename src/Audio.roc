@@ -105,6 +105,13 @@ voices_for = |fx| {
 		Skill => arp(square, [1047.0, 1319.0, 1568.0, 2093.0], 0.05, 0.22, 0.0)
 		GameOver => arp(triangle, [784.0, 659.0, 523.0, 392.0, 262.0], 0.22, 0.34, 0.0)
 		Begin => arp(square, [262.0, 392.0, 523.0, 784.0], 0.08, 0.22, 0.0)
+		Drop => [tone(square, 240.0, 120.0, 0.07, 0.32, 0.0), tone(noise_wave, 1200.0, 300.0, 0.05, 0.18, 0.0)]
+		DropsDone => arp(square, [392.0, 494.0, 587.0, 784.0, 988.0], 0.07, 0.22, 0.0)
+		Ramp(combo) => {
+			c = if combo > 8 8.0 else combo.to_f64()
+			[tone(noise_wave, 300.0, 3000.0 + 300.0 * c, 0.35, 0.12, 0.0), tone(triangle, 330.0 + 55.0 * c, 880.0 + 110.0 * c, 0.3, 0.3, 0.0)]
+		}
+		TableSwitch => [tone(saw, 180.0, 720.0, 0.3, 0.16, 0.0), tone(noise_wave, 4000.0, 800.0, 0.3, 0.08, 0.0)]
 		Wall(impact) => if impact > 45.0 [tone(noise_wave, 900.0, 300.0, 0.025, Physics.clamp(impact / 400.0, 0.0, 0.22), 0.0)] else []
 	}
 }

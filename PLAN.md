@@ -15,7 +15,8 @@
 - [x] Touch controls: corner flippers, swipe-down plunger with distance power, no iOS keyboard (terminal input disarmed + touch layer), audio unlock on gesture end, portrait layout; unit + Chromium touch tests. (2026-10-07 19:45 EDT)
 - [x] Launch orbit no longer drains into the left outlane (left orbit exit guide; property test over powers and seeds). (2026-10-08 08:50 EDT)
 - [x] Motion nudge: device bump (7.5 m/s², 0.4 s cooldown) nudges via the same input as t; permission on gesture end; unit + Chromium tests. (2026-10-08 09:00 EDT)
-- [ ] Alternate tables researched from real digital pinball designs (original names), switchable between games ([ ] keys, swipe left/right), animated transition.
+- [x] Alternate tables (Orbital, Iron Horse, Graveyard; after Pinball Dreams' Ignition/Steel Wheel/Nightmare and Space Cadet), drop targets, ramps, upper flipper, per-table highs; [ ] / PageUp/PageDown and sideways swipe between games; smoothstep slide; per-table property tests and native/wasm differential on every table; ?table=N. (2026-10-08 10:30 EDT)
+- [ ] Unreproduced flake (2026-10-08): one ./test run failed in the web build with roc "invalid platform: header declares platform glue as its platform, but that package does not have a platform header" (from `roc glue CGlue.roc`). Not reproduced in 96 concurrent glue runs (vs glue, vs cached roc test, vs native roc build). Next: capture full roc output when it recurs; consider serializing the two glue steps.
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)
 - [ ] Native smoke test in a real terminal; record observed results.

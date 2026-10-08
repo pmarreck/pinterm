@@ -3,7 +3,7 @@
 // keyboard events, evaluates page state and captures screenshots.
 // Usage: node browser.mjs SITE_DIR_OR_URL COMMAND...
 //   check            play a scripted session; print JSON evidence
-//   shot OUT.png     capture a demo-mode screenshot after gameplay
+//   shot OUT.png [N] capture a demo-mode screenshot after gameplay on table N
 import { spawn } from "node:child_process";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -114,7 +114,7 @@ try {
 	await send("Runtime.enable");
 	await send("Page.enable");
 	if (command === "shot") {
-		await send("Page.navigate", { url: `${base}?demo&seed=7` });
+		await send("Page.navigate", { url: `${base}?demo&seed=7&table=${process.argv[5] ?? 0}` });
 		// Capture shortly after a launch so a ball is in play.
 		await waitForEvent(/event launch/, 20000);
 		await sleep(1200);
@@ -138,8 +138,18 @@ try {
 			}
 			await touchAt("touchEnd", []);
 		};
+		const sideways = async (x0, x1, y) => {
+			await touchAt("touchStart", [[x0, y]]);
+			for (let i = 1; i <= 8; i++) {
+				await touchAt("touchMove", [[x0 + ((x1 - x0) * i) / 8, y]]);
+				await sleep(16);
+			}
+			await touchAt("touchEnd", []);
+		};
 		await tap(W / 2, H / 2); // dismiss the start overlay
 		const overlayGone = await waitFor("document.getElementById('start').hidden", 5000);
+		await sideways(W * 0.7, W * 0.3, H * 0.3); // swipe left: next table
+		const switched = await waitForEvent(/event table index=1/);
 		await swipe(W / 2, H * 0.2, H * 0.3); // a plunger press starts the game
 		const started = await waitForEvent(/event start/);
 		await sleep(1200); // let that short pull's delayed release land first
@@ -156,7 +166,7 @@ try {
 		const nudged = await waitForEvent(/event nudge/);
 		const focus = await evalPage("document.activeElement ? document.activeElement.tagName + (document.activeElement.isContentEditable ? ':editable' : '') : 'none'");
 		const editable = await evalPage("document.querySelectorAll('[contenteditable]').length");
-		console.log(JSON.stringify({ overlayGone, started, launched, left, right, nudged, focus, editable, problems: problems() }));
+		console.log(JSON.stringify({ overlayGone, switched, started, launched, left, right, nudged, focus, editable, problems: problems() }));
 	} else if (command === "check") {
 		await send("Page.navigate", { url: `${base}?seed=7` });
 		await waitFor("window.pinterm !== undefined", 20000);
@@ -164,6 +174,9 @@ try {
 		await key(" ", "Space", "down"); // dismiss start overlay
 		await key(" ", "Space", "up");
 		await waitFor("document.getElementById('start').hidden", 5000);
+		await key("]", "BracketRight", "down"); // next table, between games
+		await key("]", "BracketRight", "up");
+		const switched = await waitForEvent(/event table index=1/);
 		await key(" ", "Space", "down"); // start the game
 		await key(" ", "Space", "up");
 		const started = await waitForEvent(/event start/);
@@ -175,7 +188,7 @@ try {
 		const flipped = await waitForEvent(/event flip side=left/);
 		await key("z", "KeyZ", "up");
 		const audio = await evalPage("(() => { try { return typeof AudioContext } catch { return 'none' } })()");
-		console.log(JSON.stringify({ overlayBefore, started, launched, flipped, audio, problems: problems() }));
+		console.log(JSON.stringify({ overlayBefore, switched, started, launched, flipped, audio, problems: problems() }));
 	}
 } finally {
 	b.close();

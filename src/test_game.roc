@@ -66,8 +66,8 @@ expect {
 
 # ---------- table ----------
 
-expect Table.walls.len() > 30
-expect Table.standups.len() == 4
+expect Table.classic.walls.len() > 30
+expect Table.classic.standups.len() == 4
 
 # ---------- game flow ----------
 
@@ -94,7 +94,7 @@ expect {
 
 # Hitting a pop bumper scores 100 (times multiplier) and requests a sound.
 expect {
-	bumper = Table.bumpers.first() ?? { pos: { x: 0.0, y: 0.0 }, r: 1.0 }
+	bumper = Table.classic.bumpers.first() ?? { pos: { x: 0.0, y: 0.0 }, r: 1.0 }
 	g = in_play(started, bumper.pos.x, bumper.pos.y - 4.5, 0.0, 60.0)
 	after = run_frames(g, 6)
 	after.score >= 100 and after.bumpers_hit >= 1
@@ -196,7 +196,7 @@ expect {
 # Consecutive scoring within the combo window builds a combo.
 expect {
 	g = { ..started, combo: 2, combo_until: started.time + 1.0 }
-	bumper = Table.bumpers.first() ?? { pos: { x: 0.0, y: 0.0 }, r: 1.0 }
+	bumper = Table.classic.bumpers.first() ?? { pos: { x: 0.0, y: 0.0 }, r: 1.0 }
 	after = run_frames(in_play(g, bumper.pos.x, bumper.pos.y - 4.5, 0.0, 60.0), 6)
 	after.combo >= 3
 }
@@ -272,4 +272,169 @@ expect {
 	g = in_play(started, 22.0, 30.0, 0.0, 0.0)
 	nudged = press(g, Nudge)
 	nudged.log.any(|l| l.starts_with("event nudge"))
+}
+
+# ---------- tables ----------
+
+attract : Game.State
+attract = Game.new(42)
+
+# Between games, ] and [ cycle through every table and wrap both ways.
+expect {
+	var $g = attract
+	var $seen = []
+	var $i = 0
+	while $i < Table.count {
+		$g = press($g, NextTable)
+		$seen = $seen.append($g.table_index)
+		$i = $i + 1
+	}
+	back = press(attract, PrevTable)
+	$seen == [1, 2, 3, 0] and back.table_index == Table.count - 1 and back.table.name == (Table.at(Table.count - 1)).name
+}
+
+# The switch is animated: the slide is under way at once and done after transition_time.
+expect {
+	g = press(attract, NextTable)
+	later = run_frames(g, 40)
+	Game.transition(g) < 0.1 and g.transition_from == 0 and g.transition_dir == 1 and Game.transition(later) == 1.0 and Game.transition(attract) == 1.0
+}
+
+# Tables cannot change mid-game.
+expect {
+	g = press(started, NextTable)
+	g.table_index == 0 and g.table.name == started.table.name
+}
+
+# Switching emits a sound cue and a log line naming the table.
+expect {
+	g = press(attract, NextTable)
+	g.fx.contains(TableSwitch) and g.log.any(|l| l == "event table index=1 name=${(Table.at(1)).name}")
+}
+
+# Each table keeps its own high score, and a game starts on the selected table.
+expect {
+	g = press({ ..attract, highs: [100, 200, 300, 400] }, NextTable)
+	playing = press(g, Start)
+	g.high == 200 and playing.table_index == 1 and playing.table.name == (Table.at(1)).name and playing.high == 200
+}
+
+# Every table: every launch power reaches the playfield (leaves the shooter lane).
+expect {
+	var $ok = Bool.True
+	var $t = 0
+	while $t < Table.count {
+		var $hold = 10
+		while $hold <= 54 {
+			g0 = { ..Game.step(Game.new_on(5, $t), frame, [Press(Start)]), exact_keys: Bool.True }
+			var $g = Game.step(g0, frame, [Press(Plunger)])
+			$g = run_frames($g, $hold)
+			$g = Game.step($g, frame, [Release(Plunger)])
+			var $left = Bool.False
+			var $i = 0
+			while $i < 360 {
+				$g = Game.step($g, frame, [])
+				if $g.balls.any(|b| b.pos.x < Table.lane_left - 2.0) {
+					$left = Bool.True
+				}
+				$i = $i + 1
+			}
+			if !$left {
+				$ok = Bool.False
+			}
+			$hold = $hold + 11
+		}
+		$t = $t + 1
+	}
+	$ok
+}
+
+# Every table: under seeded random flipping no ball leaves the cabinet bounds,
+# and play keeps progressing: relaunching whenever a ball waits, every table scores.
+expect {
+	var $ok = Bool.True
+	var $t = 0
+	while $t < Table.count {
+		var $g = { ..Game.step(Game.new_on(9, $t), frame, [Press(Start)]), exact_keys: Bool.True }
+		$g = Game.step($g, frame, [Press(Plunger)])
+		$g = run_frames($g, 40)
+		$g = Game.step($g, frame, [Release(Plunger)])
+		var $r = 12345.U64
+		var $i = 0
+		while $i < 3600 {
+			$r = $r.times_wrap(6364136223846793005).plus_wrap(1442695040888963407)
+			roll = $r.shr_zf_wrap(59)
+			ev = if $g.on_plunger and $i % 90 == 0 [Press(Plunger)] else if $g.on_plunger and $i % 90 == 40 [Release(Plunger)] else if roll == 0 [Press(LeftFlip)] else if roll == 1 [Release(LeftFlip)] else if roll == 2 [Press(RightFlip)] else if roll == 3 [Release(RightFlip)] else []
+			$g = Game.step($g, frame, ev)
+			for b in $g.balls {
+				if b.pos.x < -1.0 or b.pos.x > Table.width + 1.0 or b.pos.y < -1.0 {
+					$ok = Bool.False
+				}
+			}
+			$i = $i + 1
+		}
+		if $g.score == 0 {
+			$ok = Bool.False
+		}
+		$t = $t + 1
+	}
+	$ok
+}
+
+started_on : U64 -> Game.State
+started_on = |t| press(Game.new_on(42, t), Start)
+
+# Orbital: a ball fired into a drop target knocks it down and bounces back.
+expect {
+	g = in_play(started_on(1), 14.2, 45.0, 0.0, -60.0)
+	after = run_frames(g, 20)
+	(after.drops_down.get(0) ?? Bool.False) and after.score >= 750 and after.balls.any(|b| b.vel.y > 0.0 or b.pos.y > 42.0)
+}
+
+# A downed drop target no longer blocks: the ball passes through its slot.
+expect {
+	g0 = started_on(1)
+	g = in_play({ ..g0, drops_down: [Bool.True, Bool.False, Bool.False, Bool.False, Bool.False, Bool.False] }, 14.2, 45.0, 0.0, -60.0)
+	after = run_frames(g, 6)
+	after.balls.any(|b| b.pos.y < 41.0)
+}
+
+# Completing a bank lights the lock, scores the bonus and resets after the delay.
+expect {
+	g0 = started_on(1)
+	g = in_play({ ..g0, drops_down: [Bool.True, Bool.True, Bool.True, Bool.True, Bool.True, Bool.False] }, 32.2, 45.0, 0.0, -60.0)
+	(done, lines) = run_logged(g, 20)
+	reset = run_frames({ ..done, balls: [{ pos: { x: 22.0, y: 20.0 }, vel: { x: 0.0, y: 0.0 }, r: Table.ball_radius }] }, 300)
+	lines.any(|l| l.starts_with("event drops_complete")) and done.lock_lit and reset.drops_down.all(|d| !d)
+}
+
+# Iron Horse: a fast shot into a ramp mouth rides the ramp, then exits with
+# a ramp award and a train car; a second ramp inside the window is a combo.
+expect {
+	g = in_play(started_on(2), 12.5, 42.5, 8.0, -90.0)
+	riding = run_frames(g, 3)
+	(back, lines) = run_logged(riding, 70)
+	riding.riders.len() == 1 and riding.balls.is_empty() and back.riders.is_empty() and back.cars == 1 and back.ramps_hit == 1 and lines.any(|l| l.starts_with("event ramp")) and back.balls.len() == 1
+}
+
+expect {
+	g = in_play({ ..started_on(2), ramp_combo: 1, ramp_combo_until: 1.0e9 }, 31.5, 42.5, -8.0, -90.0)
+	(back, _) = run_logged(g, 70)
+	back.ramp_combo == 2 and back.ramps_hit == 1
+}
+
+# A slow ball does not climb the ramp.
+expect {
+	g = in_play(started_on(2), 12.5, 42.5, 2.0, -20.0)
+	after = run_frames(g, 3)
+	after.riders.is_empty()
+}
+
+# Graveyard: the upper right flipper swings with the right flipper button.
+expect {
+	g = started_on(3)
+	up = run_frames(press(g, RightFlip), 6)
+	rest = (g.uppers.get(0) ?? { angle: 0.0, omega: 0.0, down: Bool.False, until: 0.0 }).angle
+	moved = (up.uppers.get(0) ?? { angle: 0.0, omega: 0.0, down: Bool.False, until: 0.0 }).angle
+	g.uppers.len() == 1 and (moved - rest).abs() > 0.5
 }

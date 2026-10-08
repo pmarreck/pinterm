@@ -6,7 +6,7 @@ main! = |_args| Ok({})
 
 # Classifier over the full byte set: exactly the mapped bytes produce keys.
 expect {
-	mapped = ['z', 'Z', '/', ' ', 13, 10, 'p', 'P', 'n', 'N', 'q', 'Q', 3, 'm', 'M', 'h', 'H', '?', 26, 12, 't', 'T']
+	mapped = ['z', 'Z', '/', ' ', 13, 10, 'p', 'P', 'n', 'N', 'q', 'Q', 3, 'm', 'M', 'h', 'H', '?', 26, 12, 't', 'T', '[', ']']
 	var $ok = Bool.True
 	var $b = 0
 	while $b < 256 {
@@ -32,3 +32,8 @@ expect Input.parse(Str.to_utf8("\u(1b)[200~x")) == []
 expect Input.parse([3]) == [Press(Quit)]
 # Alternate-key sub-fields on the code parameter do not confuse modifiers.
 expect Input.parse(Str.to_utf8("\u(1b)[47:63;1:3u")) == [Release(RightFlip)]
+
+# Table selection: bracket keys (legacy and kitty) and PageUp/PageDown.
+expect Input.parse(['[', ']']) == [Press(PrevTable), Press(NextTable)]
+expect Input.parse(Str.to_utf8("\u(1b)[91u\u(1b)[93;1:3u")) == [Press(PrevTable), Release(NextTable)]
+expect Input.parse(Str.to_utf8("\u(1b)[5~\u(1b)[6~")) == [Press(PrevTable), Press(NextTable)]

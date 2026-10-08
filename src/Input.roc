@@ -2,7 +2,7 @@
 ## Handles plain bytes, CSI/SS3 arrow keys, and the kitty keyboard protocol
 ## (CSI code;mods:event u) whose release events enable exact flipper holds.
 Input :: [].{
-	Key : [LeftFlip, RightFlip, Plunger, Start, Nudge, Pause, New, Quit, Mute, Help, Suspend, Redraw]
+	Key : [LeftFlip, RightFlip, Plunger, Start, Nudge, Pause, New, Quit, Mute, Help, Suspend, Redraw, PrevTable, NextTable]
 	Ev : [Press(Key), Release(Key)]
 
 	## Decode one tick's input bytes. Incomplete trailing escape sequences are
@@ -80,6 +80,10 @@ key_for_byte_impl = |b| {
 		[Redraw]
 	} else if b == 't' or b == 'T' {
 		[Nudge]
+	} else if b == '[' {
+		[PrevTable]
+	} else if b == ']' {
+		[NextTable]
 	} else {
 		[]
 	}
@@ -146,6 +150,10 @@ decode_csi = |params, final| {
 			[Plunger]
 		} else if final == 'A' {
 			[Nudge]
+		} else if final == '~' and code == 5 {
+			[PrevTable]
+		} else if final == '~' and code == 6 {
+			[NextTable]
 		} else {
 			[]
 		}

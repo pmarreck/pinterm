@@ -2,6 +2,7 @@ import Game
 import Input
 import Render
 import Audio
+import Table
 
 ## Pure per-tick application step between the host and the game: decodes the
 ## host tick packet (clock, terminal size, flags, input bytes), routes UI keys
@@ -15,7 +16,7 @@ Loop :: [].{
 		mixer : Audio.Mixer,
 		prev : List(Render.Cell),
 		lay : Render.Layout,
-		base : List(U32),
+		bases : List(List(U32)),
 		opts : Render.Opts,
 		last_us : U64,
 		sound : Bool,
@@ -48,7 +49,7 @@ Loop :: [].{
 			mixer: Audio.new(cfg.rate),
 			prev: [],
 			lay,
-			base: if lay.ok Render.static_pixels(lay) else [],
+			bases: List.repeat([], Table.count),
 			opts: { color: cfg.color, ascii: cfg.ascii, sound: cfg.sound, help: Bool.False, fps: cfg.fps },
 			last_us: 0,
 			sound: cfg.sound,
@@ -69,7 +70,7 @@ Loop :: [].{
 		s1 =
 			if resized and (cols != s0.lay.cols or rows != s0.lay.rows or s0.prev.is_empty()) and cols > 0 and rows > 0 {
 				lay = Render.layout(cols, rows)
-				{ ..s0, lay, base: if lay.ok Render.static_pixels(lay) else [], prev: [] }
+				{ ..s0, lay, bases: List.repeat([], Table.count), prev: [] }
 			} else if resized {
 				{ ..s0, prev: [] }
 			} else {
@@ -82,11 +83,16 @@ Loop :: [].{
 		mixer0 = if s2.sound game.fx.fold(s2.mixer, Audio.trigger) else s2.mixer
 		(mixer, pcm) = Audio.render(mixer0, dt)
 		samples = if s2.sound pcm else []
-		cells = Render.compose(game, s2.opts, s2.lay, s2.base)
+		bases0 = ensure_base(s2.bases, s2.lay, game.table_index)
+		sliding = Game.transition(game) < 1.0
+		bases = if sliding ensure_base(bases0, s2.lay, game.transition_from) else bases0
+		base = bases.get(game.table_index) ?? []
+		from_base = if sliding bases.get(game.transition_from) ?? [] else []
+		cells = Render.compose(game, s2.opts, s2.lay, base, from_base)
 		bytes = Render.encode(s2.prev, cells, s2.lay.cols, s2.opts.color)
 		log = game.log.fold([], |acc, line| List.concat(acc, Str.to_utf8("f=${game.frame.to_str()} ${line}\n")))
 		{
-			state: { ..s2, game, mixer, prev: cells, last_us: now_us },
+			state: { ..s2, game, mixer, bases, prev: cells, last_us: now_us },
 			bytes,
 			samples,
 			log,
@@ -129,6 +135,8 @@ game_key = |r, k, kind| {
 			Nudge => [Nudge]
 			Pause => [Pause]
 			New => [New]
+			PrevTable => [PrevTable]
+			NextTable => [NextTable]
 			_ => []
 		}
 	evs = mapped.map(
@@ -160,4 +168,12 @@ le_u64 = |b, i| {
 		$k = $k + 1
 	}
 	$v
+}
+
+## Static rasters are cached per table and built the first time each table is
+## shown at the current terminal size (a resize clears the cache).
+ensure_base : List(List(U32)), Render.Layout, U64 -> List(List(U32))
+ensure_base = |bases, lay, index| {
+	have = (bases.get(index) ?? []).len() > 0
+	if have or !lay.ok bases else bases.set(index, Render.static_pixels(lay, Table.at(index))) ?? bases
 }
