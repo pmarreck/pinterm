@@ -4,11 +4,14 @@
 import { Ghostty, Terminal, FitAddon } from "./vendor/ghostty-web.js";
 import { loadGame, keyEventBytes, SAMPLE_RATE, FLAG_RESIZED } from "./pinterm-core.js";
 import { createTouchControls } from "./touch-controls.js";
+import { createShakeDetector } from "./shake.js";
 
 const params = new URLSearchParams(location.search);
 const demo = params.has("demo");
 const seed = Number(params.get("seed") ?? Math.floor(Math.random() * 2 ** 31));
-const GAME_KEYS = new Set(["z", "Z", "/", " ", "t", "T", "p", "P", "m", "M", "h", "H", "?", "n", "N", "q", "Q", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+// ?table=N opens on table N (0 = Classic); the core switches with "]" between games.
+const startTable = Math.max(0, Math.min(16, Math.floor(Number(params.get("table") ?? 0)) || 0));
+const GAME_KEYS = new Set(["z", "Z", "/", " ", "t", "T", "p", "P", "m", "M", "h", "H", "?", "n", "N", "q", "Q", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "[", "]"]);
 
 const container = document.getElementById("terminal");
 const overlay = document.getElementById("start");
@@ -56,6 +59,7 @@ let game = await loadGame(wasm, { cols: term.cols, rows: term.rows, seed, sound:
 let pending = [];
 let size = { cols: 0, rows: 0 };
 let quitShown = false;
+let firstFrame = true;
 // Recent structured game events (bounded), for tests and curious players.
 const eventLog = [];
 
@@ -113,6 +117,27 @@ touchLayer.addEventListener("touchstart", (e) => onTouch(e, "start"), { passive:
 touchLayer.addEventListener("touchmove", (e) => onTouch(e, "move"), { passive: false });
 touchLayer.addEventListener("touchend", (e) => onTouch(e, "end"), { passive: false });
 touchLayer.addEventListener("touchcancel", (e) => onTouch(e, "cancel"), { passive: false });
+// Motion: a firm bump of the device nudges the table (same as the t key).
+// iOS requires DeviceMotionEvent.requestPermission() during a user gesture;
+// it is retried on each completed gesture until granted or denied.
+const shake = createShakeDetector();
+let motionPermission = typeof globalThis.DeviceMotionEvent?.requestPermission === "function" ? "unrequested" : "implicit";
+function requestMotion() {
+	if (motionPermission !== "unrequested" && motionPermission !== "failed") return;
+	motionPermission = "requesting";
+	globalThis.DeviceMotionEvent.requestPermission()
+		.then((state) => { motionPermission = state === "granted" || state === "denied" ? state : "failed"; })
+		.catch(() => { motionPermission = "failed"; });
+}
+for (const name of ["touchend", "pointerup", "click", "keydown"]) addEventListener(name, requestMotion, { capture: true, passive: true });
+addEventListener("devicemotion", (e) => {
+	if (!overlay.hidden || quitShown) return;
+	const user = e.acceleration?.x != null;
+	const a = user ? e.acceleration : e.accelerationIncludingGravity;
+	if (!a) return;
+	if (shake.sample({ t: e.timeStamp, x: a.x, y: a.y, z: a.z, includesGravity: !user })) queue(keyEventBytes("t", "down"));
+}, { passive: true });
+
 // Losing focus mid-press must not leave a flipper stuck up.
 addEventListener("blur", () => sendTouch(touch.cancelAll(performance.now())));
 document.addEventListener("visibilitychange", () => { if (document.hidden) sendTouch(touch.cancelAll(performance.now())); });
@@ -158,6 +183,10 @@ function tick(now) {
 	if (term.cols !== size.cols || term.rows !== size.rows) {
 		size = { cols: term.cols, rows: term.rows };
 		flags |= FLAG_RESIZED;
+	}
+	if (firstFrame) {
+		firstFrame = false;
+		for (let i = 0; i < startTable; i++) queue(keyEventBytes("]", "down"));
 	}
 	if (demo) queue(demoInput());
 	sendTouch(touch.tick(performance.now()));
