@@ -11,6 +11,8 @@ site="${PINTERM_WEB:-$root/out/web}"
 dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-web.XXXXXX")"
 
 check "site has index.html" [ -s "$site/index.html" ]
+check "site has a 12-hex build id" grep -Eqx "[0-9a-f]{12}" "$site/build-id.txt"
+check "index.html carries the same build id" grep -q "<meta name=\"pinterm-build\" content=\"$(cat "$site/build-id.txt" 2>/dev/null)\">" "$site/index.html"
 check "site has the game core" [ -s "$site/pinterm.wasm" ]
 check "site has libghostty renderer" [ -s "$site/vendor/ghostty-vt.wasm" ] && [ -s "$site/vendor/ghostty-web.js" ]
 check "site ships license notices" [ -s "$site/licenses/pinterm-MIT.txt" ] && [ -s "$site/licenses/ghostty-web-MIT.txt" ] && [ -s "$site/licenses/Roc-UPL.txt" ]
@@ -58,6 +60,7 @@ if command -v chromium >/dev/null; then
 	check "held plunger launched with measured power" grep -Eq '"launched":"f=[0-9]+ event launch power=([1-9][0-9]?)"' <<<"$out"
 	check "z key flipped the left flipper" grep -q '"flipped":"f=[0-9]* event flip side=left"' <<<"$out"
 	check "Web Audio available" grep -q '"audio":"function"' <<<"$out"
+	check "no diagnostic overlay without ?diag" grep -q '"diag":null' <<<"$out"
 	check "no page errors" grep -q '"problems":\[\]' <<<"$out"
 	capture timeout 90 node "$root/tests/web/browser.mjs" "$site" touch
 	check "touch session ran ($err)" [ "$rc" -eq 0 ]
@@ -70,6 +73,8 @@ if command -v chromium >/dev/null; then
 	check "no editable element can raise a keyboard" grep -q '"editable":0' <<<"$out"
 	check "focus never lands on a text input" bash -c '! grep -Eq "\"focus\":\"(TEXTAREA|INPUT|[A-Z]+:editable)\"" <<<"$1"' _ "$out"
 	check "device bump nudged the table" grep -q '"nudged":"f=[0-9]* event nudge' <<<"$out"
+	check "?diag overlay shows the swipe classification" grep -q '"diag":"[^"]*gesture swipe-left dx -[0-9]* dy -\?[0-9]* keys ]:down ]:up' <<<"$out"
+	check "?diag overlay shows a current build id" grep -Eq '"diag":"build [0-9a-f]{12} served [0-9a-f]{12} ok' <<<"$out"
 	check "no page errors on touch" grep -q '"problems":\[\]' <<<"$out"
 else
 	fail "chromium unavailable: browser session not verified"

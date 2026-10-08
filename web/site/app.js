@@ -230,3 +230,31 @@ else {
 	addEventListener("keydown", (e) => { if (!overlay.hidden) { e.preventDefault(); begin(); } }, { capture: true });
 }
 window.pinterm = { seed, eventLog };
+
+// ?diag: an on-device overlay for debugging touch input on phones, where no
+// developer console is at hand. It shows the build the page loaded against
+// the build the server has now (a stale cache reads STALE), raw touch event
+// counts, how the last gesture was classified and which keys it sent, and the
+// game's last event. Without ?diag nothing is installed.
+if (params.has("diag")) {
+	const loaded = document.querySelector('meta[name="pinterm-build"]')?.content ?? "?";
+	let served = "pending";
+	fetch("./build-id.txt", { cache: "no-store" }).then((r) => r.text()).then((t) => { served = t.trim(); }).catch(() => { served = "unavailable"; });
+	const counts = { touchstart: 0, touchmove: 0, touchend: 0, touchcancel: 0 };
+	for (const name of Object.keys(counts)) addEventListener(name, () => { counts[name]++; }, { capture: true, passive: true });
+	const panel = document.createElement("pre");
+	panel.id = "diag";
+	panel.style.cssText = "position:fixed;top:0;left:0;z-index:10;margin:0;padding:.3rem .5rem;pointer-events:none;"
+		+ "font:600 11px/1.3 ui-monospace,Menlo,monospace;color:#c8f7d0;background:rgba(0,0,0,.75);white-space:pre";
+	document.body.append(panel);
+	setInterval(() => {
+		const g = touch.lastGesture();
+		panel.textContent = [
+			`build ${loaded} served ${served} ${served === loaded ? "ok" : served === "pending" ? "?" : "STALE"}`,
+			`touch ts ${counts.touchstart} tm ${counts.touchmove} te ${counts.touchend} tc ${counts.touchcancel}`,
+			g ? `gesture ${g.kind} dx ${g.dx} dy ${g.dy} keys ${g.keys.join(" ") || "-"}` : "gesture -",
+			`event ${document.body.dataset.lastEvent ?? "-"}`,
+			`view ${innerWidth}x${innerHeight}`,
+		].join("\n");
+	}, 100);
+}

@@ -438,3 +438,9 @@ expect {
 	moved = (up.uppers.get(0) ?? { angle: 0.0, omega: 0.0, down: Bool.False, until: 0.0 }).angle
 	g.uppers.len() == 1 and (moved - rest).abs() > 0.5
 }
+
+# A table key mid-game is refused visibly (a swipe would otherwise do nothing).
+expect {
+	g = press(started, NextTable)
+	g.table_index == 0 and g.message == "CHANGE TABLES BETWEEN GAMES" and g.log.any(|l| l.starts_with("event table_locked"))
+}

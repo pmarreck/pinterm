@@ -489,8 +489,8 @@ press = |g, key| {
 		LeftFlip => if g.paused g else flip_press(g, Left)
 		RightFlip => if g.paused g else flip_press(g, Right)
 		Nudge => if g.mode == Playing and !g.paused nudge(g) else g
-		PrevTable => if between_games(g) switch_table(g, g.table_index + Table.count - 1, -1) else g
-		NextTable => if between_games(g) switch_table(g, g.table_index + 1, 1) else g
+		PrevTable => if between_games(g) switch_table(g, g.table_index + Table.count - 1, -1) else table_locked(g)
+		NextTable => if between_games(g) switch_table(g, g.table_index + 1, 1) else table_locked(g)
 	}
 }
 
@@ -1112,3 +1112,7 @@ launch_scale = |table| (table.gravity / reference_gravity).sqrt()
 
 reference_gravity : F64
 reference_gravity = 72.0
+
+## Tables only change between games; say so instead of ignoring the request.
+table_locked : State -> State
+table_locked = |g| note(announce(g, "CHANGE TABLES BETWEEN GAMES", 1.5), "event table_locked")

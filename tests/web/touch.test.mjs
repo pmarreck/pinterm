@@ -135,3 +135,17 @@ test("a stroke that already pulled the plunger never becomes a swipe", () => {
 	const out = keys([...t.start(1, 500, 100, 0), ...t.move(1, 500, 200, 10), ...t.move(1, 900, 210, 20), ...t.end(1, 30), ...t.tick(5000)]);
 	assert.deepEqual(out, [" :down", " :up"]);
 });
+
+test("each finished gesture is recorded for the on-device diagnostic overlay", () => {
+	const t = mk();
+	assert.equal(t.lastGesture(), null);
+	stroke(t, -150, 20);
+	assert.deepEqual(t.lastGesture(), { kind: "swipe-left", dx: -150, dy: 20, keys: ["]:down", "]:up"] });
+	stroke(t, 100, 80);
+	assert.deepEqual(t.lastGesture(), { kind: "none", dx: 100, dy: 80, keys: [] });
+	stroke(t, 0, 200);
+	assert.equal(t.lastGesture().kind, "plunger");
+	t.start(5, 50, 780, 0);
+	t.end(5, 10);
+	assert.equal(t.lastGesture().kind, "left-flipper");
+});

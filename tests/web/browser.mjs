@@ -126,7 +126,7 @@ try {
 		const W = 820, H = 1180;
 		await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
 		await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 2, mobile: true });
-		await send("Page.navigate", { url: `${base}?seed=7` });
+		await send("Page.navigate", { url: `${base}?seed=7&diag` });
 		await waitFor("window.pinterm !== undefined", 20000);
 		const touchAt = (type, points) => send("Input.dispatchTouchEvent", { type, touchPoints: points.map(([x, y], i) => ({ x, y, id: i })) });
 		const tap = async (x, y) => { await touchAt("touchStart", [[x, y]]); await touchAt("touchEnd", []); };
@@ -150,6 +150,8 @@ try {
 		const overlayGone = await waitFor("document.getElementById('start').hidden", 5000);
 		await sideways(W * 0.7, W * 0.3, H * 0.3); // swipe left: next table
 		const switched = await waitForEvent(/event table index=1/);
+		await waitFor("(document.getElementById('diag')?.textContent ?? '').includes(' ok\\n')", 5000);
+		const diag = await evalPage("document.getElementById('diag')?.textContent ?? null");
 		await swipe(W / 2, H * 0.2, H * 0.3); // a plunger press starts the game
 		const started = await waitForEvent(/event start/);
 		await sleep(1200); // let that short pull's delayed release land first
@@ -166,7 +168,7 @@ try {
 		const nudged = await waitForEvent(/event nudge/);
 		const focus = await evalPage("document.activeElement ? document.activeElement.tagName + (document.activeElement.isContentEditable ? ':editable' : '') : 'none'");
 		const editable = await evalPage("document.querySelectorAll('[contenteditable]').length");
-		console.log(JSON.stringify({ overlayGone, switched, started, launched, left, right, nudged, focus, editable, problems: problems() }));
+		console.log(JSON.stringify({ overlayGone, switched, diag, started, launched, left, right, nudged, focus, editable, problems: problems() }));
 	} else if (command === "check") {
 		await send("Page.navigate", { url: `${base}?seed=7` });
 		await waitFor("window.pinterm !== undefined", 20000);
@@ -187,8 +189,9 @@ try {
 		await key("z", "KeyZ", "down");
 		const flipped = await waitForEvent(/event flip side=left/);
 		await key("z", "KeyZ", "up");
+		const diag = await evalPage("document.getElementById('diag')?.textContent ?? null");
 		const audio = await evalPage("(() => { try { return typeof AudioContext } catch { return 'none' } })()");
-		console.log(JSON.stringify({ overlayBefore, switched, started, launched, flipped, audio, problems: problems() }));
+		console.log(JSON.stringify({ overlayBefore, switched, diag, started, launched, flipped, audio, problems: problems() }));
 	}
 } finally {
 	b.close();
