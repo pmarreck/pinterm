@@ -19,6 +19,7 @@ export const SWIPE_MIN_PX = 60;
 export function createTouchControls({ width, height }) {
 	let w = width, h = height;
 	const touches = new Map(); // id -> { kind: "left"|"right"|"stroke", x0, y0, x, y, maxDy }
+	let last = null; // the most recent finished gesture, for ?diag
 	let pull = null; // { id, startMs, powerFraction, releaseAt (ms) | null }
 
 	const action = (key, type) => ({ key, type });
@@ -58,20 +59,25 @@ export function createTouchControls({ width, height }) {
 		const t = touches.get(id);
 		touches.delete(id);
 		if (!t) return [];
-		if (t.kind === "left") return [action("z", "up")];
-		if (t.kind === "right") return [action("/", "up")];
-		if (pull && pull.id === id && pull.releaseAt === null) {
-			pull.releaseAt = pull.startMs + pull.powerFraction * PLUNGER_FULL_MS;
-			return tick(now);
+		const out = classify(t, id, now);
+		last = { kind: out.kind, dx: Math.round(t.x - t.x0), dy: Math.round(t.y - t.y0), keys: out.actions.map((a) => `${a.key}:${a.type}`) };
+		return out.actions;
+	}
+
+	// What a lifted (or cancelled) touch means, and the keys it sends now.
+	function classify(t, id, now) {
+		if (t.kind === "left") return { kind: "left-flipper", actions: [action("z", "up")] };
+		if (t.kind === "right") return { kind: "right-flipper", actions: [action("/", "up")] };
+		if (pull && pull.id === id) {
+			if (pull.releaseAt === null) pull.releaseAt = pull.startMs + pull.powerFraction * PLUNGER_FULL_MS;
+			return { kind: "plunger", actions: tick(now) };
 		}
-		if (!(pull && pull.id === id)) {
-			const dx = t.x - t.x0, dy = t.y - t.y0;
-			if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > 2 * Math.abs(dy)) {
-				const k = dx < 0 ? "]" : "[";
-				return [action(k, "down"), action(k, "up")];
-			}
+		const dx = t.x - t.x0, dy = t.y - t.y0;
+		if (Math.abs(dx) >= SWIPE_MIN_PX && Math.abs(dx) > 2 * Math.abs(dy)) {
+			const k = dx < 0 ? "]" : "[";
+			return { kind: dx < 0 ? "swipe-left" : "swipe-right", actions: [action(k, "down"), action(k, "up")] };
 		}
-		return [];
+		return { kind: "none", actions: [] };
 	}
 
 	function tick(now) {
@@ -96,5 +102,6 @@ export function createTouchControls({ width, height }) {
 		},
 		tick,
 		resize(nw, nh) { w = nw; h = nh; },
+		lastGesture: () => last,
 	};
 }
