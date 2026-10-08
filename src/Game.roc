@@ -414,7 +414,8 @@ nudge = |g| {
 	(u, g1) = rand(g)
 	push = { x: (u - 0.5) * 30.0, y: -18.0 }
 	tilt = g1.tilt + 1.0
-	nudged = { ..g1, tilt, balls: g1.balls.map(|b| { ..b, vel: Physics.add(b.vel, push) }) }
+	nudged0 = { ..g1, tilt, balls: g1.balls.map(|b| { ..b, vel: Physics.add(b.vel, push) }) }
+	nudged = note(nudged0, "event nudge tilt=${int_str(tilt * 10.0)}")
 	if tilt >= tilt_limit and !g1.tilted {
 		tilted = announce({ ..nudged, tilted: Bool.True }, "TILT", 3.0)
 		note(emit(tilted, Tilt), "event tilt score=${g.score.to_str()}")

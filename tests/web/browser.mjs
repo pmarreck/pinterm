@@ -150,9 +150,13 @@ try {
 		await tap(W - 40, H - 60);
 		const right = await waitForEvent(/event flip side=right/);
 		if (outPath) writeFileSync(outPath, Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
+		// A firm device bump (as the accelerometer reports it) nudges the table.
+		await evalPage(`window.dispatchEvent(new DeviceMotionEvent("devicemotion", {
+			acceleration: { x: 11, y: 2, z: 0 }, accelerationIncludingGravity: { x: 11, y: 2, z: 9.8 }, interval: 16 })); true`);
+		const nudged = await waitForEvent(/event nudge/);
 		const focus = await evalPage("document.activeElement ? document.activeElement.tagName + (document.activeElement.isContentEditable ? ':editable' : '') : 'none'");
 		const editable = await evalPage("document.querySelectorAll('[contenteditable]').length");
-		console.log(JSON.stringify({ overlayGone, started, launched, left, right, focus, editable, problems: problems() }));
+		console.log(JSON.stringify({ overlayGone, started, launched, left, right, nudged, focus, editable, problems: problems() }));
 	} else if (command === "check") {
 		await send("Page.navigate", { url: `${base}?seed=7` });
 		await waitFor("window.pinterm !== undefined", 20000);

@@ -31,8 +31,8 @@ for size in 100x40 80x24; do
 	check "wasm frame bytes identical to native at $size" cmp -s "$dir/native-frames-$size" "$dir/web-frames-$size"
 done
 
-capture node --test "$root/tests/web/touch.test.mjs"
-check "touch-control unit tests ($(grep -E "^. (pass|fail)" <<<"$out" | tr "\n" " "))" [ "$rc" -eq 0 ]
+capture node --test "$root/tests/web/touch.test.mjs" "$root/tests/web/shake.test.mjs"
+check "touch and shake unit tests ($(grep -E "^. (pass|fail)" <<<"$out" | tr "\n" " "))" [ "$rc" -eq 0 ]
 
 # Real browser, real key events.
 if command -v chromium >/dev/null; then
@@ -53,6 +53,7 @@ if command -v chromium >/dev/null; then
 	check "lower-right tap flipped right" grep -q '"right":"f=[0-9]* event flip side=right"' <<<"$out"
 	check "no editable element can raise a keyboard" grep -q '"editable":0' <<<"$out"
 	check "focus never lands on a text input" bash -c '! grep -Eq "\"focus\":\"(TEXTAREA|INPUT|[A-Z]+:editable)\"" <<<"$1"' _ "$out"
+	check "device bump nudged the table" grep -q '"nudged":"f=[0-9]* event nudge' <<<"$out"
 	check "no page errors on touch" grep -q '"problems":\[\]' <<<"$out"
 else
 	fail "chromium unavailable: browser session not verified"

@@ -13,6 +13,9 @@
 - [x] GitHub Pages via ./deploy-web (gh-pages branch, no Actions); live at https://pmarreck.github.io/pinterm/ and verified with a real-keyboard headless Chromium session. (2026-10-07 18:40 EDT)
 - [ ] Faint seams between cell rows in ghostty-web canvas rendering; investigate font size/metrics.
 - [x] Touch controls: corner flippers, swipe-down plunger with distance power, no iOS keyboard (terminal input disarmed + touch layer), audio unlock on gesture end, portrait layout; unit + Chromium touch tests. (2026-10-07 19:45 EDT)
+- [x] Launch orbit no longer drains into the left outlane (left orbit exit guide; property test over powers and seeds). (2026-10-08 08:50 EDT)
+- [x] Motion nudge: device bump (7.5 m/s², 0.4 s cooldown) nudges via the same input as t; permission on gesture end; unit + Chromium tests. (2026-10-08 09:00 EDT)
+- [ ] Alternate tables researched from real digital pinball designs (original names), switchable between games ([ ] keys, swipe left/right), animated transition.
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)
 - [ ] Native smoke test in a real terminal; record observed results.

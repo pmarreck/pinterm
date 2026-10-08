@@ -239,3 +239,37 @@ expect {
 	kicked = Game.step({ ..frozen, balls: [{ pos: { x: 30.0, y: 50.0 }, vel: { x: 0.0, y: 0.0 }, r: 1.0 }] }, frame, [])
 	kicked.log.any(|l| l.contains("ball_search")) or kicked.balls.any(|b| b.vel.y < -10.0)
 }
+
+# Regression: strong launches orbited the arch, hugged the left wall and fell
+# straight into the left outlane. No launch power may feed the outlane directly.
+expect {
+	var $ok = Bool.True
+	for seed in [1, 2, 3] {
+		var $hold = 6
+		while $hold <= 54 {
+			g0 = { ..Game.step(Game.new(seed), frame, [Press(Start)]), exact_keys: Bool.True }
+			var $g = Game.step(g0, frame, [Press(Plunger)])
+			$g = run_frames($g, $hold)
+			$g = Game.step($g, frame, [Release(Plunger)])
+			var $i = 0
+			while $i < 240 {
+				$g = Game.step($g, frame, [])
+				for b in $g.balls {
+					if b.pos.x < 5.0 and b.pos.y > 53.0 {
+						$ok = Bool.False
+					}
+				}
+				$i = $i + 1
+			}
+			$hold = $hold + 4
+		}
+	}
+	$ok
+}
+
+# Every nudge is logged (headless evidence; the web build checks motion nudges).
+expect {
+	g = in_play(started, 22.0, 30.0, 0.0, 0.0)
+	nudged = press(g, Nudge)
+	nudged.log.any(|l| l.starts_with("event nudge"))
+}

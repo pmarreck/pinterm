@@ -146,6 +146,10 @@ wall_list = List.concat(
 		seg(39.0, 64.0, 30.8, 70.2),
 		seg(35.5, 54.0, 35.5, 62.0),
 		seg(35.5, 62.0, 31.5, 64.5),
+		# Left orbit exit guide: turns balls running down the left wall back into
+		# play instead of letting full launches fall into the left outlane. It
+		# slopes down to the right, so nothing can come to rest against it.
+		seg(1.0, 25.0, 6.5, 30.5),
 		# Top lane dividers.
 		seg(11.5, 15.0, 11.5, 21.0),
 		seg(18.5, 15.0, 18.5, 21.0),

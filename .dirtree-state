@@ -40,6 +40,7 @@ annotate=[
 	tests/web/browser.mjs = Headless Chromium DevTools driver: real key events, event polling, screenshots
 	tests/web/replay.mjs = Headless wasm replay mirroring native --headless (differential oracle)
 	tests/web/serve.mjs = Minimal static file server for local site testing
+	tests/web/shake.test.mjs = Node unit tests for shake detection (noise, bumps, cooldown, gravity, tilt)
 	tests/web/touch.test.mjs = Node unit tests for touch controls (zone classifier grid, strokes, power timing, cancelAll)
 	tests/web/web_test = Web suite: site contents, native-vs-wasm differential replays, browser session
 	web/platform/host_web.c = Freestanding wasm host: free-list allocator, input buffer, frame output pointers
@@ -47,5 +48,6 @@ annotate=[
 	web/site/app.js = Page shell: ghostty-web terminal, kitty-style key bytes, rAF loop, Web Audio, demo mode
 	web/site/index.html = Web page: terminal container, start overlay (audio gesture), footer
 	web/site/pinterm-core.js = Shared wasm driver: config/tick packet packing, frame output copy, key encoding
+	web/site/shake.js = Shake-to-nudge detector: user acceleration threshold + cooldown, gravity low-pass fallback
 	web/site/touch-controls.js = Touch state machine: corner flippers held while touched, downward stroke = plunger with distance-derived power
 ]
