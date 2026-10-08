@@ -150,7 +150,7 @@ try {
 		const overlayGone = await waitFor("document.getElementById('start').hidden", 5000);
 		await sideways(W * 0.7, W * 0.3, H * 0.3); // swipe left: next table
 		const switched = await waitForEvent(/event table index=1/);
-		await waitFor("(document.getElementById('diag')?.textContent ?? '').includes(' ok\\n')", 5000);
+		await waitFor("(document.getElementById('diag')?.textContent ?? '').includes('gesture swipe')", 5000);
 		const diag = await evalPage("document.getElementById('diag')?.textContent ?? null");
 		await swipe(W / 2, H * 0.2, H * 0.3); // a plunger press starts the game
 		const started = await waitForEvent(/event start/);
