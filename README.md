@@ -31,7 +31,7 @@ Play it at **<https://pmarreck.github.io/pinterm/>**.
 `nix build .#web` (or `./build-web`) produces a static site in `result/`
 (or `out/web/`). Serve it with any static file server and open
 `index.html`. Use `?seed=N` for a repeatable game, `?table=N` to open on a
-given table (0 to 3) and `?demo` for a self-playing attract mode.
+given table (0 to 4) and `?demo` for a self-playing attract mode.
 
 On phones and tablets, touch and hold the lower-left or lower-right corner
 for the flippers, and swipe down anywhere else to pull the plunger; a longer
@@ -58,40 +58,43 @@ fills the screen with a compact score bar on top.
 
 ### Tables
 
-Four tables share the cabinet, plunger lane and lower playfield (flippers,
-slingshots, inlanes), so the flippers feel the same everywhere. Each table has
-its own upper playfield, rules, gravity, colors and high score. Change tables
-between games; the old table slides off and the new one slides in.
+Five tables, each with its own shape, toys, background art, sound palette
+and high score. Flipper physics is identical on every table, so skill carries
+over. Change tables between games; the old table slides off and the new one
+slides in.
 
-| Table | Features |
-|---|---|
-| Classic | P-I-N lanes, three pop bumpers, T-E-R-M stand-up targets, center saucer |
-| Orbital | W-A-R-P lanes, a diamond of four bumpers, an I-G-N-I-T-E drop-target bank, a launch ramp up the left side and a black-hole saucer |
-| Iron Horse | W-E-S-T lanes, C-O-A-L targets and two crossing ramps; each ramp adds a car to the train, and four cars light the saucer |
-| Graveyard | steeper (stronger gravity), B-O-O lanes, an R-I-P drop bank, two jackpot ramps and an upper right flipper |
+| Table | Shape and toys | Look and sound |
+|---|---|---|
+| Classic | P-I-N lanes, three pop bumpers, T-E-R-M stand-up targets, a center saucer | neon grid, arcade bleeps |
+| Orbital | a full orbit loop over the top with a spinner at its crest; no slingshots, wider flippers with a center post; a wormhole from mid-field to the top lanes; I-G-N-I-T-E drop targets guarding a black-hole saucer | starfield and ringed planet, echoing space tones |
+| Iron Horse | a train that shuttles across mid-field (every third hit adds a car), two crossing ramps that add cars too, a third flipper on the left wall, and a left-outlane kickback that W-E-S-T relights | winding rail track, steam whistles |
+| Graveyard | steeper; three ghost bumpers that fade in and out of the world, a ghost magnet that grabs and flings the ball, R-I-P drop targets, the SOUL ramp and an upper right flipper | moon, tombstones and fog, detuned minor-key sounds |
+| Clockwork | an hourglass: the upper chamber (G-E-A-R lanes, a spinning rotor, the saucer) funnels to a waist guarded by a second flipper pair, above a spinner and T-O-C-K targets | brass gears, ticks and chimes |
 
 The alternates are original layouts in the style of classic digital tables:
 Orbital after *Ignition* from Pinball Dreams (1992) and *Space Cadet* from
 3D Pinball for Windows, Iron Horse after the Old West train table *Steel
-Wheel*, and Graveyard after *Nightmare*, both also from Pinball Dreams. The
-sources found did not document those playfields exactly, so these borrow
-themes and features rather than geometry. Press `h` in game for the current
-table's rules.
+Wheel*, and Graveyard after *Nightmare*, both also from Pinball Dreams.
+Clockwork is new. The sources found did not document those playfields
+exactly, so these borrow themes and features rather than geometry. Press `h`
+in game for the current table's rules.
 
 ### Rules
 
 You have three balls. Pop bumpers score 100 and slingshots 10, times the
 bonus multiplier. Rolling through all of a table's top lanes raises the
-multiplier, up to x5. The flippers rotate which lanes are lit. Completing the
-table's target bank (stand-up or drop targets), or on Iron Horse riding four
-ramps, lights the center saucer, and putting a ball into the lit saucer starts
-two-ball multiball. A ramp scores 1,000 times the ramp combo (ramps within
-4 seconds of each other count up) and raises the jackpot; during multiball a
-ramp also scores a super jackpot of half the jackpot. During multiball, each
-saucer shot scores a growing jackpot. Scoring several hits within about
-1.5 seconds builds a combo. A blinking top lane at launch is a skill shot.
-Each ball gets one ball save shortly after launch. End-of-ball bonus counts
-your hits, unless you tilted.
+multiplier, up to x5. The flippers rotate which lanes are lit. Completing
+the table's target bank (stand-up or drop targets), or on Iron Horse
+adding four train cars (each ramp, or every third train hit), lights
+the lock saucer, and putting a ball into the lit saucer starts two-ball
+multiball. A ramp scores 1,000 times the ramp combo (ramps within 4 seconds
+of each other count up) and raises the jackpot; during multiball a ramp
+also scores a super jackpot of half the jackpot. Spinners score more
+the faster the ball passes, the train scores 1,000 per hit, and a magnet
+capture scores 500. During multiball, each saucer shot scores a growing
+jackpot. Scoring several hits within about 1.5 seconds builds a combo. A
+blinking top lane at launch is a skill shot. Each ball gets one ball save
+shortly after launch. End-of-ball bonus counts your hits, unless you tilted.
 
 ### Options
 

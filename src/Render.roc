@@ -317,6 +317,16 @@ background_rgb = |table, p| {
 background : Table.Layout, { x : F64, y : F64 } -> U32
 background = |table, p| {
 	base = background_rgb(table, p)
+	inside_art = p.x > 1.0 and p.x < Table.lane_left and p.y > 2.0
+	if table.art != Grid {
+		px_of(kind_bg, if inside_art art_rgb(table.art, p, base) else base)
+	} else {
+		grid_background(table, p, base)
+	}
+}
+
+grid_background : Table.Layout, { x : F64, y : F64 }, U32 -> U32
+grid_background = |table, p, base| {
 	gx = ((floor_u64(p.x)) % 6 == 0)
 	gy = ((floor_u64(p.y)) % 6 == 0)
 	inside = p.x > 1.0 and p.x < 47.0 and p.y > 2.0
@@ -1083,3 +1093,136 @@ slide_pixels = |from, into, lay, progress, dir| {
 ## legible over ramp tracks.
 unlit_dim : F64
 unlit_dim = 0.4
+
+# ---------- background art ----------
+
+## Procedural backdrop for a table, drawn behind everything in the static
+## raster: a starfield and ringed planet, rail track with ties, a moon with
+## tombstones and fog, or brass gears. Pure function of the world point.
+art_rgb : [Grid, Stars, Rails, Graves, Gears], { x : F64, y : F64 }, U32 -> U32
+art_rgb = |art, p, base| {
+	match art {
+		Grid => base
+		Stars => stars_art(p, base)
+		Rails => rails_art(p, base)
+		Graves => graves_art(p, base)
+		Gears => gears_art(p, base)
+	}
+}
+
+## Integer hash of a world cell (for scattering stars), xorshift-multiply mix.
+cell_hash : F64, F64 -> U64
+cell_hash = |x, y| {
+	a = floor_u64(x * 2.0 + 64.0)
+	b = floor_u64(y * 2.0 + 64.0)
+	h0 = a.times_wrap(73856093).bitwise_xor(b.times_wrap(19349663))
+	h1 = h0.bitwise_xor(h0.shr_zf_wrap(13)).times_wrap(0x9E3779B97F4A7C15)
+	h1.bitwise_xor(h1.shr_zf_wrap(29))
+}
+
+stars_art : { x : F64, y : F64 }, U32 -> U32
+stars_art = |p, base| {
+	planet = { x: 31.0, y: 57.0 }
+	d = Physics.sub(p, planet)
+	r = Physics.length(d)
+	ring = (d.x / 8.0) * (d.x / 8.0) + (d.y / 2.0) * (d.y / 2.0)
+	ring_band = ring > 0.8 and ring < 1.12
+	in_front = d.y > 0.0 or r > 4.6
+	h = cell_hash(p.x, p.y)
+	if ring_band and in_front {
+		mix(base, 0x9AD8FF, 0.45)
+	} else if r <= 4.6 {
+		light = Physics.clamp(0.5 - (d.x + d.y) / 12.0, 0.0, 1.0)
+		mix(0x2A0A5A, 0xB06AFF, light)
+	} else if h % 149 == 0 {
+		mix(base, 0xFFFFFF, 0.18 + (h.shr_zf_wrap(8) % 30).to_f64() / 100.0)
+	} else if h % 401 == 1 {
+		mix(base, 0x7AD8FF, 0.45)
+	} else {
+		mix(base, 0x1A0A40, Physics.clamp(0.25 - ((p.y - 30.0) / 40.0).abs() * 0.25, 0.0, 0.25))
+	}
+}
+
+rails_art : { x : F64, y : F64 }, U32 -> U32
+rails_art = |p, base| {
+	if p.y < 44.0 {
+		base
+	} else {
+		center = 22.0 + 7.0 * ((p.y - 44.0) / 12.0).sin()
+		off = (p.x - center).abs()
+		tie_phase = (p.y / 2.6) - (floor_u64(p.y / 2.6)).to_f64()
+		if (off - 2.4).abs() < 0.35 {
+			mix(base, 0x9A8A7A, 0.55)
+		} else if off < 3.6 and tie_phase < 0.32 {
+			mix(base, 0x5A3418, 0.7)
+		} else if off < 3.6 {
+			mix(base, 0x2A1A0C, 0.35)
+		} else {
+			base
+		}
+	}
+}
+
+## Rounded tombstone: a rectangle with a semicircular top.
+tomb : { x : F64, y : F64 }, { x : F64, y : F64 }, F64, F64 -> Bool
+tomb = |p, at, w, h| {
+	d = Physics.sub(p, at)
+	body = d.x.abs() <= w and d.y >= 0.0 and d.y <= h
+	top = d.y < 0.0 and Physics.length(d) <= w
+	body or top
+}
+
+graves_art : { x : F64, y : F64 }, U32 -> U32
+graves_art = |p, base| {
+	moon = { x: 36.0, y: 8.5 }
+	dm = Physics.length(Physics.sub(p, moon))
+	crater = Physics.length(Physics.sub(p, { x: 35.0, y: 7.6 })) < 0.9 or Physics.length(Physics.sub(p, { x: 37.2, y: 9.6 })) < 0.6
+	fog = Physics.clamp((p.y - 58.0) / 26.0, 0.0, 1.0) * (0.35 + 0.15 * (p.x * 0.6 + p.y * 0.25).sin())
+	stone = tomb(p, { x: 19.0, y: 53.0 }, 1.6, 3.4) or tomb(p, { x: 25.0, y: 51.5 }, 1.3, 3.0) or tomb(p, { x: 22.0, y: 57.5 }, 1.8, 3.2)
+	if dm <= 3.2 {
+		if crater 0xA8B898 else 0xDCE8C8
+	} else if dm <= 4.6 {
+		mix(base, 0x4A5A3A, 0.35 * (4.6 - dm))
+	} else if stone {
+		mix(base, 0x5A6A5A, 0.55)
+	} else {
+		mix(base, 0x3A5A3A, fog)
+	}
+}
+
+## Chebyshev T_n(c) = cos(n * acos c): gear teeth without needing atan2.
+chebyshev : U64, F64 -> F64
+chebyshev = |n, c| {
+	var $prev = 1.0
+	var $cur = c
+	var $k = 1
+	while $k < n {
+		next = 2.0 * c * $cur - $prev
+		$prev = $cur
+		$cur = next
+		$k = $k + 1
+	}
+	if n == 0 1.0 else $cur
+}
+
+## A gear outline at `center`: rim radius `r`, `teeth` teeth, a hub and spokes.
+gear : { x : F64, y : F64 }, { x : F64, y : F64 }, F64, U64 -> Bool
+gear = |p, center, r, teeth| {
+	d = Physics.sub(p, center)
+	dist = Physics.length(d)
+	c = if dist > 0.0 d.x / dist else 1.0
+	tooth = chebyshev(teeth, c) > 0.2
+	rim = dist >= r - 1.0 and dist <= (if tooth r + 0.9 else r)
+	hub = dist <= 1.1
+	spoke = dist < r - 1.0 and (d.x.abs() < 0.3 or d.y.abs() < 0.3)
+	rim or hub or spoke
+}
+
+gears_art : { x : F64, y : F64 }, U32 -> U32
+gears_art = |p, base| {
+	big = gear(p, { x: 9.0, y: 61.0 }, 5.5, 10)
+	mid = gear(p, { x: 35.5, y: 62.0 }, 4.5, 8)
+	small = gear(p, { x: 22.0, y: 46.0 }, 3.0, 6)
+	top = gear(p, { x: 38.0, y: 10.0 }, 3.5, 7)
+	if big or mid or small or top mix(base, 0xC8A04A, 0.3) else base
+}

@@ -80,7 +80,7 @@ Loop :: [].{
 		routed = events.fold({ s: s1, game_events: [], quit: Bool.False, suspend: Bool.False }, route)
 		s2 = routed.s
 		game = Game.step(s2.game, dt, routed.game_events)
-		mixer0 = if s2.sound game.fx.fold(s2.mixer, Audio.trigger) else s2.mixer
+		mixer0 = if s2.sound game.fx.fold(s2.mixer, |m, fx| Audio.trigger_in(m, game.table.sound, fx)) else s2.mixer
 		(mixer, pcm) = Audio.render(mixer0, dt)
 		samples = if s2.sound pcm else []
 		bases0 = ensure_base(s2.bases, s2.lay, game.table_index)

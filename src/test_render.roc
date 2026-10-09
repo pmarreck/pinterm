@@ -196,3 +196,23 @@ expect {
 	k = { ..started, table: { ..bare, kickbacks: [spot] } }
 	pix({ ..g, time: 0.5 }, spot) != pix({ ..g, time: 1.5 }, spot) and pix({ ..k, kickback_lit: Bool.True }, spot) != pix({ ..k, kickback_lit: Bool.False }, spot)
 }
+
+# ---------- per-table background art ----------
+
+# Art changes a real share of the background, never a gameplay pixel, and
+# each alternate table's art is its own (Classic keeps the plain grid).
+expect {
+	lay = Render.layout(100, 40)
+	kind = |p| p.shr_zf_wrap(24)
+	check = |i| {
+		table = Table.at(i)
+		with_art = Render.static_pixels(lay, table)
+		plain = Render.static_pixels(lay, { ..table, art: Grid })
+		pairs = List.map2(with_art, plain, |a, b| (a, b))
+		changed = pairs.count_if(|(a, b)| a != b)
+		gameplay_same = pairs.all(|(a, b)| kind(b) != 0 or kind(a) == 0)
+		gameplay_kept = pairs.all(|(a, b)| kind(b) == 0 or a == b)
+		changed * 50 > with_art.len() and gameplay_same and gameplay_kept
+	}
+	(Table.at(0)).art == Grid and check(1) and check(2) and check(3) and check(4)
+}

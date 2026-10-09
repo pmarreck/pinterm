@@ -15,10 +15,19 @@ Audio :: [].{
 	new : U64 -> Mixer
 	new = |rate| { voices: [], rate: rate.to_f64(), carry: 0.0, noise: 0x1234567 }
 
-	## Queue the voices for one gameplay effect, dropping the oldest when full.
+	## A table's sound palette: the same effects reshaped (waves, pitch,
+	## echoes, detuning) plus its own start and drain jingles.
+	Theme : [Arcade, Space, Steam, Haunt, Clock]
+
+	## Queue the voices for one gameplay effect (arcade sound).
 	trigger : Mixer, Game.Fx -> Mixer
-	trigger = |m, fx| {
-		added = List.concat(m.voices, voices_for(fx))
+	trigger = |m, fx| Audio.trigger_in(m, Arcade, fx)
+
+	## Queue the voices for one effect in a table's theme, dropping the oldest
+	## voices when the pool is full.
+	trigger_in : Mixer, Theme, Game.Fx -> Mixer
+	trigger_in = |m, theme, fx| {
+		added = List.concat(m.voices, themed_voices(theme, fx))
 		excess = if added.len() > Audio.max_voices added.len() - Audio.max_voices else 0
 		{ ..m, voices: added.drop_first(excess) }
 	}
@@ -159,3 +168,52 @@ to_i16 = |x| {
 	v = Physics.clamp(x, -1.0, 1.0) * 32000.0
 	v.round_to_i16_try() ?? 0
 }
+
+# ---------- table sound themes ----------
+
+## Voices for an effect in a theme: arcade is the original sound; the others
+## reshape it and give the start, drain and game-over moments their own
+## jingles.
+themed_voices : Audio.Theme, Game.Fx -> List(Audio.Voice)
+themed_voices = |theme, fx| {
+	base = voices_for(fx)
+	match theme {
+		Arcade => base
+		Space =>
+			match fx {
+				Begin => with_echo(arp(triangle, [392.0, 587.0, 784.0, 1175.0, 1568.0], 0.09, 0.24, 0.0))
+				Drain => [tone(triangle, 1200.0, 80.0, 0.9, 0.38, 0.0), tone(noise_wave, 2000.0, 200.0, 0.6, 0.08, 0.0)]
+				GameOver => with_echo(arp(triangle, [1175.0, 880.0, 587.0, 440.0, 294.0], 0.2, 0.3, 0.0))
+				_ => with_echo(base.map(|v| { ..v, wave: if v.wave == noise_wave noise_wave else triangle, f0: v.f0 * 1.5, f1: v.f1 * 1.5, dur: v.dur * 1.3 }))
+			}
+		Steam =>
+			match fx {
+				Begin => [tone(saw, 523.0, 500.0, 0.7, 0.2, 0.0), tone(saw, 659.0, 630.0, 0.7, 0.18, 0.0), tone(noise_wave, 5000.0, 3000.0, 0.7, 0.06, 0.0)]
+				Drain => [tone(saw, 659.0, 330.0, 0.8, 0.22, 0.0), tone(saw, 523.0, 262.0, 0.8, 0.2, 0.0)]
+				GameOver => [tone(saw, 523.0, 262.0, 1.2, 0.22, 0.0), tone(saw, 659.0, 330.0, 1.2, 0.2, 0.0), tone(noise_wave, 600.0, 150.0, 1.2, 0.1, 0.0)]
+				_ => base.map(|v| { ..v, wave: if v.wave == square saw else v.wave, f0: v.f0 * 0.8, f1: v.f1 * 0.8 }).append(tone(noise_wave, 600.0, 200.0, 0.08, 0.16, 0.0))
+			}
+		Haunt =>
+			match fx {
+				Begin => detuned(arp(triangle, [220.0, 262.0, 330.0, 440.0, 523.0, 440.0], 0.14, 0.3, 0.0))
+				Drain => detuned([tone(triangle, 330.0, 110.0, 1.0, 0.38, 0.0)])
+				GameOver => detuned(arp(triangle, [440.0, 415.0, 330.0, 262.0, 220.0], 0.28, 0.32, 0.0))
+				_ => detuned(base.map(|v| { ..v, wave: if v.wave == noise_wave noise_wave else triangle, f0: v.f0 * 0.75, f1: v.f1 * 0.75 }))
+			}
+		Clock =>
+			match fx {
+				Begin => List.concat(arp(triangle, [659.0, 523.0, 587.0, 392.0], 0.24, 0.32, 0.0), arp(triangle, [1319.0, 1047.0, 1175.0, 784.0], 0.24, 0.1, 0.0))
+				Drain => [tone(noise_wave, 4000.0, 4000.0, 0.02, 0.3, 0.0), tone(noise_wave, 4000.0, 4000.0, 0.02, 0.3, 0.25), tone(noise_wave, 4000.0, 4000.0, 0.02, 0.3, 0.5), tone(triangle, 196.0, 190.0, 1.0, 0.36, 0.55)]
+				GameOver => arp(triangle, [392.0, 587.0, 523.0, 659.0], 0.32, 0.32, 0.0)
+				_ => base.map(|v| { ..v, dur: v.dur * 0.6, f0: if v.wave == triangle v.f0 * 2.0 else v.f0, f1: if v.wave == triangle v.f1 * 2.0 else v.f1 }).append(tone(noise_wave, 4000.0, 4000.0, 0.015, 0.2, 0.0))
+			}
+	}
+}
+
+## Add a quieter delayed copy of each pitched voice (space echo).
+with_echo : List(Audio.Voice) -> List(Audio.Voice)
+with_echo = |voices| List.concat(voices, voices.keep_if(|v| v.wave != noise_wave).map(|v| { ..v, delay: v.delay + 0.12, vol: v.vol * 0.4 }))
+
+## Add a slightly sharp copy of each pitched voice: the beating sounds eerie.
+detuned : List(Audio.Voice) -> List(Audio.Voice)
+detuned = |voices| List.concat(voices, voices.keep_if(|v| v.wave != noise_wave).map(|v| { ..v, f0: v.f0 * 1.03, f1: v.f1 * 1.03, vol: v.vol * 0.6 }))

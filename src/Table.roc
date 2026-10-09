@@ -60,6 +60,8 @@ Table :: [].{
 		spinners : List(Seg),
 		rotors : List(Rotor),
 		ghosts : List(Ghost),
+		art : [Grid, Stars, Rails, Graves, Gears],
+		sound : [Arcade, Space, Steam, Haunt, Clock],
 		palette : Palette,
 	}
 
@@ -261,6 +263,8 @@ classic_layout = {
 	spinners: [],
 	rotors: [],
 	ghosts: [],
+	art: Grid,
+	sound: Arcade,
 	palette: {
 		wall_top: 0x00E5FF,
 		wall_bottom: 0xB44DFF,
@@ -363,6 +367,8 @@ orbital = {
 	spinners: [{ a: { x: 24.0, y: -1.2 }, b: { x: 24.0, y: 3.4 } }],
 	rotors: [],
 	ghosts: [],
+	art: Stars,
+	sound: Space,
 	palette: {
 		wall_top: 0x4CC9FF,
 		wall_bottom: 0x7B2CFF,
@@ -452,6 +458,8 @@ iron_horse = {
 	spinners: [],
 	rotors: [],
 	ghosts: [],
+	art: Rails,
+	sound: Steam,
 	palette: {
 		wall_top: 0xFFB347,
 		wall_bottom: 0xC0392B,
@@ -529,6 +537,8 @@ graveyard = {
 		{ pos: { x: 31.0, y: 25.0 }, r: 2.3, period: 3.0, solid: 2.0 },
 		{ pos: { x: 22.0, y: 23.5 }, r: 2.3, period: 3.4, solid: 2.2 },
 	],
+	art: Graves,
+	sound: Haunt,
 	palette: {
 		wall_top: 0x7DFF6A,
 		wall_bottom: 0x6A2CFF,
@@ -603,6 +613,8 @@ clockwork = {
 	spinners: [{ a: { x: 19.5, y: 50.0 }, b: { x: 24.5, y: 50.0 } }],
 	rotors: [{ center: { x: 22.0, y: 25.0 }, length: 4.2, speed: 2.4 }],
 	ghosts: [],
+	art: Gears,
+	sound: Clock,
 	palette: {
 		wall_top: 0xF2C46D,
 		wall_bottom: 0x9C5B2E,
