@@ -22,12 +22,14 @@ annotate=[
 	src/Loop.roc = Pure per-frame step: packet decode, UI key routing, Game.step, mixing, rendering
 	src/Physics.roc = Vector math and circle-vs-capsule/circle contact with moving-surface impulses
 	src/Render.roc = Half-block rasterizer, overlays, panel/HUD, color fallbacks, diffed ANSI encoder
-	src/Table.roc = Table geometry: walls, arch, gate, bumpers, slings, lanes, targets, saucer, flippers
+	src/Table.roc = Table layouts as data: five tables (Classic, Orbital, Iron Horse, Graveyard, Clockwork) with geometry, flippers, toys, art and sound tags
 	src/TestKit.roc = Shared helpers for Roc expectation suites
 	src/main.roc = Effectful shell: loops Host.tick! -> Loop.frame -> present/audio/log
+	src/test_audio.roc = Roc expectations for per-table sound themes: arcade identity, distinct jingles, audibility
 	src/test_game.roc = Physics, table and game-flow expectations
 	src/test_input.roc = Input decoder expectations (byte-set classifier, CSI, kitty)
 	src/test_loop.roc = Audio synthesis and per-frame loop expectations
+	src/test_mechanics.roc = Roc expectations for table toys (kickback, magnet, portals, movers, spinners, rotors, ghosts) and their rule hooks
 	src/test_render.roc = Layout, composition, fallback and diff-encoding expectations
 	src/web_main.roc = Browser app entry: Model = Loop.State; init/frame wrap the same Loop.frame
 	test = Complete test entry: parallel Roc suites, fmt, build-if-stale, parallel CLI/integration suites
