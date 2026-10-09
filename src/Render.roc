@@ -104,6 +104,15 @@ Render :: [].{
 		}
 	}
 
+	## The table raster for one frame (static base plus moving parts and
+	## lights), before text overlays and the cell blit.
+	playfield : Game.State, Layout, List(U32) -> List(U32)
+	playfield = |g, lay, base| dynamic_pixels(g, lay, base)
+
+	## The raster pixel covering world point p.
+	pixel_at : Layout, List(U32), { x : F64, y : F64 } -> U32
+	pixel_at = |lay, buf, p| buf.get(floor_u64(p.y * lay.s) * lay.pw + floor_u64(p.x * lay.s)) ?? 0
+
 	## Horizontal wipe between two table rasters for an animated table switch:
 	## smoothstep-eased offset, `dir` 1 slides the old table out to the left.
 	slide : List(U32), List(U32), Layout, F64, I64 -> List(U32)
@@ -260,7 +269,7 @@ static_at = |lay, table, px, py| {
 			if d > 0.72 px_of(kind_bumper, pal.bumper_ring) else px_of(kind_bumper, mix(pal.bumper_in, pal.bumper_out, d))
 		}
 		Err(_) =>
-			if in_sling(p) {
+			if in_sling(table, p) {
 				px_of(kind_sling, pal.sling_fill)
 			} else if table.slings.any(|sl| seg_dist(p, sl) <= line) {
 				px_of(kind_sling, pal.sling)
@@ -322,9 +331,9 @@ seg_dist : { x : F64, y : F64 }, { a : { x : F64, y : F64 }, b : { x : F64, y : 
 seg_dist = |p, s| Physics.length(Physics.sub(p, Physics.closest_on_segment(p, s.a, s.b)))
 
 ## Point inside a slingshot triangle (barycentric sign test).
-in_sling : { x : F64, y : F64 } -> Bool
-in_sling = |p| {
-	Table.sling_triangles.any(
+in_sling : Table.Layout, { x : F64, y : F64 } -> Bool
+in_sling = |table, p| {
+	table.sling_fill.any(
 		|tri| {
 			a = tri.get(0) ?? p
 			b = tri.get(1) ?? p
@@ -449,6 +458,46 @@ dynamic_pixels = |g, lay, base| {
 			$buf = paint_capsule($buf, lay, back, b.pos, 0.5, px_of(kind_trail, 0x4250C8))
 		}
 	}
+	# Table toys.
+	for k in table.kickbacks {
+		color = if g.kickback_lit px_of(kind_light_on, if blink(t, 2.0) pal.lane_lit else 0xFFFFFF) else px_of(kind_light_off, 0x2A2440)
+		$buf = paint_capsule($buf, lay, { x: k.x, y: k.y + 1.2 }, { x: k.x, y: k.y - 1.2 }, 0.6, color)
+	}
+	for m in table.magnets {
+		holding = !g.magnet_hold.is_empty()
+		$buf = paint_disc($buf, lay, m, 2.0, px_of(kind_saucer, if holding (if blink(t, 10.0) 0xFFFFFF else 0xB45CFF) else mix(0xB45CFF, 0x000000, 0.55)))
+		$buf = paint_disc($buf, lay, m, 0.9, px_of(kind_saucer, 0x1A0830))
+	}
+	for p in table.portals {
+		swirl = 0.5 + 0.5 * (t * 6.0).sin()
+		for end in [p.a, p.b] {
+			$buf = paint_disc($buf, lay, end, 1.7, px_of(kind_saucer, mix(0x00E5FF, 0xFF4FD8, swirl)))
+			$buf = paint_disc($buf, lay, end, 0.8, px_of(kind_saucer, 0x05020E))
+		}
+	}
+	var $spi = 0
+	for s in table.spinners {
+		spinning = (g.spinner_spin.get($spi) ?? 0.0) > t and blink(t, 14.0)
+		$buf = paint_capsule($buf, lay, s.a, s.b, 0.45, px_of(kind_light_on, if spinning 0xFFFFFF else pal.lane_lit))
+		$spi = $spi + 1
+	}
+	for m in table.movers {
+		center = Game.mover_center(m, t)
+		travel = Physics.sub(m.b, m.a)
+		span = Physics.length(travel)
+		dir = if span > 0.0 Physics.scale(travel, 1.0 / span) else { x: 1.0, y: 0.0 }
+		$buf = paint_capsule($buf, lay, Physics.sub(center, Physics.scale(dir, m.half)), Physics.add(center, Physics.scale(dir, m.half)), Table.flipper_thickness, px_of(kind_bumper, pal.target_lit))
+	}
+	for r in table.rotors {
+		angle = Game.rotor_angle(r, t)
+		$buf = paint_capsule($buf, lay, Game.tip_at(r.center, angle + F64.pi, r.length), Game.tip_at(r.center, angle, r.length), Table.flipper_thickness, px_of(kind_bumper, pal.sling))
+		$buf = paint_disc($buf, lay, r.center, 1.0, px_of(kind_bumper, 0xFFFFFF))
+	}
+	for gh in table.ghosts {
+		solid = Game.ghost_solid(gh, t)
+		$buf = paint_disc($buf, lay, gh.pos, gh.r, px_of(kind_bumper, if solid pal.bumper_ring else mix(pal.bumper_ring, 0x000000, 0.8)))
+		$buf = paint_disc($buf, lay, gh.pos, gh.r * 0.55, px_of(kind_bumper, if solid pal.bumper_in else mix(pal.bumper_in, 0x000000, 0.85)))
+	}
 	# Flippers, including any upper flippers.
 	flip_color = if g.tilted px_of(kind_flipper, 0x5A4A20) else px_of(kind_flipper, pal.flipper)
 	lt = Game.flipper_tip(g.table.left_flipper, g.left.angle)
@@ -458,7 +507,7 @@ dynamic_pixels = |g, lay, base| {
 	var $ui = 0
 	for spec in table.uppers {
 		angle = (g.uppers.get($ui) ?? { angle: spec.rest, omega: 0.0, down: Bool.False, until: 0.0 }).angle
-		$buf = paint_capsule($buf, lay, spec.pivot, Game.tip_at(spec.pivot, angle, spec.length), Table.flipper_thickness * 0.85, flip_color)
+		$buf = paint_capsule($buf, lay, spec.pivot, Game.tip_at(spec.pivot, angle, spec.length), Table.flipper_thickness, flip_color)
 		$ui = $ui + 1
 	}
 	$buf

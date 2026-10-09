@@ -40,6 +40,7 @@ Table :: [].{
 		walls : List(Seg),
 		bumpers : List({ pos : V, r : F64 }),
 		slings : List(Seg),
+		sling_fill : List(List(V)),
 		lanes : List(V),
 		lane_names : List(Str),
 		standups : List(Seg),
@@ -135,10 +136,10 @@ Table :: [].{
 	]
 
 	all : List(Layout)
-	all = [classic_layout, orbital, iron_horse, graveyard]
+	all = [classic_layout, orbital, iron_horse, graveyard, clockwork]
 
 	count : U64
-	count = 4
+	count = Table.all.len()
 
 	## Layout by index, wrapping around (index 0 is the classic table).
 	at : U64 -> Layout
@@ -172,15 +173,18 @@ arch = |flatten| {
 	$segs
 }
 
-## Cabinet sides, plunger lane and the shared lower playfield.
-lower_walls : List(Seg)
-lower_walls = [
-	# Cabinet sides.
+## Cabinet sides, plunger lane wall and plunger head: every table has these.
+cabinet : List(Seg)
+cabinet = [
 	seg(1.0, 13.0, 1.0, 84.0),
 	seg(47.0, 13.0, 47.0, 84.0),
-	# Plunger lane wall and plunger head.
 	seg(43.0, 19.0, 43.0, 84.0),
 	seg(43.0, 75.0, 47.0, 75.0),
+]
+
+## Standard inlanes and slingshot bodies for the standard flipper pair.
+inlanes_and_slings : List(Seg)
+inlanes_and_slings = [
 	# Left inlane guide and slingshot body.
 	seg(5.0, 52.0, 5.0, 64.0),
 	seg(5.0, 64.0, 13.2, 70.2),
@@ -191,11 +195,17 @@ lower_walls = [
 	seg(39.0, 64.0, 30.8, 70.2),
 	seg(35.5, 54.0, 35.5, 62.0),
 	seg(35.5, 62.0, 31.5, 64.5),
-	# Left orbit exit guide: turns balls running down the left wall back into
-	# play instead of letting full launches fall into the left outlane. It
-	# slopes down to the right, so nothing can come to rest against it.
-	seg(1.0, 25.0, 6.5, 30.5),
 ]
+
+## Left orbit exit guide: turns balls running down the left wall back into
+## play instead of letting full launches fall into the left outlane. It
+## slopes down to the right, so nothing can come to rest against it.
+orbit_guide : Seg
+orbit_guide = seg(1.0, 25.0, 6.5, 30.5)
+
+## The standard lower playfield (Classic, Iron Horse, Graveyard).
+lower_walls : List(Seg)
+lower_walls = List.concat(List.concat(cabinet, inlanes_and_slings), [orbit_guide])
 
 shared_slings : List(Seg)
 shared_slings = [
@@ -226,6 +236,7 @@ classic_layout = {
 		{ pos: { x: 22.0, y: 33.0 }, r: 2.6 },
 	],
 	slings: shared_slings,
+	sling_fill: Table.sling_triangles,
 	lanes: [{ x: 15.0, y: 18.0 }, { x: 22.0, y: 18.0 }, { x: 29.0, y: 18.0 }],
 	lane_names: ["P", "I", "N"],
 	standups: [
@@ -268,67 +279,88 @@ classic_layout = {
 	},
 }
 
-## Space table after the rocket-launch digital tables: W-A-R-P lanes, a
-## diamond of attack bumpers, an I-G-N-I-T-E drop bank across midfield, a
-## launch ramp up the left side into the top lanes and a black-hole saucer.
+## Segments along the upper half of an ellipse centred on (24, 13), from
+## angle `from` to `to` (radians, pi = left, 3pi/2 = top, 2pi = right).
+inner_arc : F64, F64, F64, F64 -> List(Seg)
+inner_arc = |rx, ry, from, to| {
+	steps = 16.U64
+	var $segs = []
+	var $i = 0
+	while $i < steps {
+		t0 = from + (to - from) * $i.to_f64() / steps.to_f64()
+		t1 = from + (to - from) * ($i + 1).to_f64() / steps.to_f64()
+		$segs = $segs.append({ a: { x: 24.0 + rx * t0.cos(), y: 13.0 + ry * t0.sin() }, b: { x: 24.0 + rx * t1.cos(), y: 13.0 + ry * t1.sin() } })
+		$i = $i + 1
+	}
+	$segs
+}
+
+## Space table after Pinball Dreams' Ignition and 3D Pinball's Space Cadet.
+## An inner arc under the cabinet arch makes a full orbit loop with a spinner
+## at its crest; the left orbit lane feeds the left inlane. No slingshots: the
+## flippers sit wider, with a centre post. A wormhole joins the right
+## mid-field to the top lanes, and I-G-N-I-T-E drops guard the black hole.
 orbital : Table.Layout
 orbital = {
 	name: "ORBITAL",
-	blurb: "Drop I-G-N-I-T-E, ride the launch ramp",
+	blurb: "Loop the orbit, ride the wormhole",
 	gravity: 70.0,
 	walls: List.concat(
-		List.concat(arch(0.62), lower_walls),
-		[
-			# Top lane dividers for four W-A-R-P lanes.
-			seg(9.5, 14.0, 9.5, 20.0),
-			seg(15.75, 14.0, 15.75, 20.0),
-			seg(22.0, 14.0, 22.0, 20.0),
-			seg(28.25, 14.0, 28.25, 20.0),
-			seg(34.5, 14.0, 34.5, 20.0),
-			# Launch ramp mouth: a short guide that funnels shots up the left side.
-			seg(10.5, 47.0, 10.5, 42.5),
-		],
+		List.concat(arch(0.62), cabinet),
+		List.concat(
+			inner_arc(18.4, 9.5, F64.pi + 0.09, 2.0 * F64.pi - 0.09),
+			[
+				# Left orbit lane: inner wall down from the arc, outer slant into the inlane.
+				seg(5.6, 12.4, 5.6, 38.0),
+				seg(5.6, 38.0, 8.6, 47.0),
+				seg(1.0, 38.0, 5.0, 52.0),
+				# Top lane dividers for W-A-R-P, under the inner arc.
+				seg(11.0, 9.0, 11.0, 13.5),
+				seg(17.0, 6.5, 17.0, 13.5),
+				seg(23.0, 6.0, 23.0, 13.5),
+				seg(29.0, 6.5, 29.0, 13.5),
+				seg(35.0, 9.0, 35.0, 13.5),
+				# Inlane guides for the wide flipper pair, and the centre post.
+				seg(5.0, 52.0, 5.0, 64.0),
+				seg(5.0, 64.0, 12.2, 71.2),
+				seg(39.0, 52.0, 39.0, 64.0),
+				seg(39.0, 64.0, 31.8, 71.2),
+				seg(22.0, 76.0, 22.0, 78.0),
+			],
+		),
 	),
 	bumpers: [
-		{ pos: { x: 22.0, y: 24.5 }, r: 2.3 },
-		{ pos: { x: 16.0, y: 29.0 }, r: 2.3 },
-		{ pos: { x: 28.0, y: 29.0 }, r: 2.3 },
-		{ pos: { x: 22.0, y: 33.5 }, r: 2.3 },
+		{ pos: { x: 22.0, y: 21.0 }, r: 2.3 },
+		{ pos: { x: 16.0, y: 26.0 }, r: 2.3 },
+		{ pos: { x: 28.0, y: 26.0 }, r: 2.3 },
+		{ pos: { x: 22.0, y: 31.0 }, r: 2.3 },
 	],
-	slings: shared_slings,
-	lanes: [{ x: 12.6, y: 17.0 }, { x: 18.9, y: 17.0 }, { x: 25.1, y: 17.0 }, { x: 31.4, y: 17.0 }],
+	slings: [],
+	sling_fill: [],
+	lanes: [{ x: 14.0, y: 11.0 }, { x: 20.0, y: 11.0 }, { x: 26.0, y: 11.0 }, { x: 32.0, y: 11.0 }],
 	lane_names: ["W", "A", "R", "P"],
 	standups: [],
 	standup_names: [],
 	drops: [
-		{ a: { x: 13.0, y: 42.0 }, b: { x: 15.4, y: 42.0 } },
-		{ a: { x: 16.6, y: 42.0 }, b: { x: 19.0, y: 42.0 } },
-		{ a: { x: 20.2, y: 42.0 }, b: { x: 22.6, y: 42.0 } },
-		{ a: { x: 23.8, y: 42.0 }, b: { x: 26.2, y: 42.0 } },
-		{ a: { x: 27.4, y: 42.0 }, b: { x: 29.8, y: 42.0 } },
-		{ a: { x: 31.0, y: 42.0 }, b: { x: 33.4, y: 42.0 } },
+		{ a: { x: 13.0, y: 43.0 }, b: { x: 15.4, y: 43.0 } },
+		{ a: { x: 16.6, y: 43.0 }, b: { x: 19.0, y: 43.0 } },
+		{ a: { x: 20.2, y: 43.0 }, b: { x: 22.6, y: 43.0 } },
+		{ a: { x: 23.8, y: 43.0 }, b: { x: 26.2, y: 43.0 } },
+		{ a: { x: 27.4, y: 43.0 }, b: { x: 29.8, y: 43.0 } },
+		{ a: { x: 31.0, y: 43.0 }, b: { x: 33.4, y: 43.0 } },
 	],
 	drop_names: ["I", "G", "N", "I", "T", "E"],
-	saucers: [{ x: 37.5, y: 36.0 }],
-	ramps: [
-		{
-			name: "LAUNCH RAMP",
-			entry: { x: 7.0, y: 45.0 },
-			entry_r: 2.4,
-			min_speed: 55.0,
-			path: [{ x: 7.0, y: 45.0 }, { x: 4.0, y: 34.0 }, { x: 4.0, y: 20.0 }, { x: 8.0, y: 12.0 }, { x: 12.5, y: 13.0 }],
-			exit_speed: 30.0,
-		},
-	],
+	saucers: [{ x: 22.0, y: 38.0 }],
+	ramps: [],
 	ramp_cars_for_lock: 0,
 	uppers: [],
-	left_flipper: Table.main_left,
-	right_flipper: Table.main_right,
+	left_flipper: { ..Table.main_left, pivot: { x: 13.0, y: 72.0 } },
+	right_flipper: { ..Table.main_right, pivot: { x: 31.0, y: 72.0 } },
 	kickbacks: [],
 	magnets: [],
-	portals: [],
+	portals: [{ a: { x: 37.0, y: 46.0 }, b: { x: 9.0, y: 17.0 } }],
 	movers: [],
-	spinners: [],
+	spinners: [{ a: { x: 24.0, y: -1.2 }, b: { x: 24.0, y: 3.4 } }],
 	rotors: [],
 	ghosts: [],
 	palette: {
@@ -349,13 +381,14 @@ orbital = {
 	},
 }
 
-## Steam-train table after the Old West ramp tables: two crossing ramps feed
-## the opposite inlanes, every ramp adds a car to the train and four cars
-## light the lock for multiball. W-E-S-T lanes and C-O-A-L targets.
+## Steam-train table after Pinball Dreams' Steel Wheel: a train shuttles
+## across mid-field (every third hit adds a car), two crossing ramps add cars
+## too, and four cars light the lock. A third flipper on the left wall, and a
+## left-outlane kickback that W-E-S-T relights.
 iron_horse : Table.Layout
 iron_horse = {
 	name: "IRON HORSE",
-	blurb: "Ramps add cars: four cars, all aboard",
+	blurb: "Hit the train, ride the rails",
 	gravity: 74.0,
 	walls: List.concat(
 		List.concat(arch(0.5), lower_walls),
@@ -365,17 +398,19 @@ iron_horse = {
 			seg(23.0, 15.0, 23.0, 20.5),
 			seg(29.5, 15.0, 29.5, 20.5),
 			seg(36.0, 15.0, 36.0, 20.5),
-			# Ramp mouth posts flanking the center saucer lane.
-			seg(16.0, 38.0, 16.0, 42.0),
-			seg(28.0, 38.0, 28.0, 42.0),
+			# Ramp mouth posts flanking the centre saucer lane.
+			seg(16.0, 39.0, 16.0, 43.0),
+			seg(28.0, 39.0, 28.0, 43.0),
+			# Mount above the third flipper.
+			seg(1.0, 41.0, 4.6, 42.6),
 		],
 	),
 	bumpers: [
-		{ pos: { x: 16.5, y: 26.0 }, r: 2.4 },
-		{ pos: { x: 27.5, y: 26.0 }, r: 2.4 },
-		{ pos: { x: 22.0, y: 31.0 }, r: 2.4 },
+		{ pos: { x: 16.5, y: 25.5 }, r: 2.4 },
+		{ pos: { x: 27.5, y: 25.5 }, r: 2.4 },
 	],
 	slings: shared_slings,
+	sling_fill: Table.sling_triangles,
 	lanes: [{ x: 13.25, y: 18.0 }, { x: 19.75, y: 18.0 }, { x: 26.25, y: 18.0 }, { x: 32.75, y: 18.0 }],
 	lane_names: ["W", "E", "S", "T"],
 	standups: [
@@ -387,33 +422,33 @@ iron_horse = {
 	standup_names: ["C", "O", "A", "L"],
 	drops: [],
 	drop_names: [],
-	saucers: [{ x: 22.0, y: 40.0 }],
+	saucers: [{ x: 22.0, y: 41.0 }],
 	ramps: [
 		{
 			name: "LEFT RAMP",
-			entry: { x: 12.5, y: 41.0 },
+			entry: { x: 12.5, y: 42.0 },
 			entry_r: 2.3,
 			min_speed: 60.0,
-			path: [{ x: 12.5, y: 41.0 }, { x: 15.0, y: 22.0 }, { x: 24.0, y: 11.0 }, { x: 38.0, y: 16.0 }, { x: 40.5, y: 34.0 }, { x: 37.3, y: 50.5 }],
+			path: [{ x: 12.5, y: 42.0 }, { x: 15.0, y: 22.0 }, { x: 24.0, y: 11.0 }, { x: 38.0, y: 16.0 }, { x: 40.5, y: 34.0 }, { x: 37.3, y: 50.5 }],
 			exit_speed: 18.0,
 		},
 		{
 			name: "RIGHT RAMP",
-			entry: { x: 31.5, y: 41.0 },
+			entry: { x: 31.5, y: 42.0 },
 			entry_r: 2.3,
 			min_speed: 60.0,
-			path: [{ x: 31.5, y: 41.0 }, { x: 29.0, y: 22.0 }, { x: 20.0, y: 11.0 }, { x: 6.0, y: 16.0 }, { x: 3.5, y: 34.0 }, { x: 6.7, y: 50.5 }],
+			path: [{ x: 31.5, y: 42.0 }, { x: 29.0, y: 22.0 }, { x: 20.0, y: 11.0 }, { x: 6.0, y: 16.0 }, { x: 3.5, y: 34.0 }, { x: 6.7, y: 50.5 }],
 			exit_speed: 18.0,
 		},
 	],
 	ramp_cars_for_lock: 4,
-	uppers: [],
+	uppers: [{ pivot: { x: 5.4, y: 43.4 }, side: Left, length: 5.4, rest: 0.45, up: -0.4 }],
 	left_flipper: Table.main_left,
 	right_flipper: Table.main_right,
-	kickbacks: [],
+	kickbacks: [{ x: 3.0, y: 66.0 }],
 	magnets: [],
 	portals: [],
-	movers: [],
+	movers: [{ a: { x: 12.0, y: 33.5 }, b: { x: 32.0, y: 33.5 }, half: 3.5, period: 5.0 }],
 	spinners: [],
 	rotors: [],
 	ghosts: [],
@@ -435,13 +470,14 @@ iron_horse = {
 	},
 }
 
-## Haunted table after the steep graveyard tables: stronger gravity, a skull
-## saucer at center, two ramps that build the jackpot, an R-I-P drop bank and
-## an upper right flipper aimed at the left ramp.
+## Haunted table after Pinball Dreams' Nightmare: steep, three ghost bumpers
+## that fade in and out of the world, a ghost magnet at the heart of the
+## field that grabs and flings the ball, an R-I-P drop bank, the SOUL ramp
+## and an upper right flipper.
 graveyard : Table.Layout
 graveyard = {
 	name: "GRAVEYARD",
-	blurb: "Steep and fast: feed the skull",
+	blurb: "Steep and fast: mind the ghosts",
 	gravity: 90.0,
 	walls: List.concat(
 		List.concat(arch(0.58), lower_walls),
@@ -454,38 +490,27 @@ graveyard = {
 			seg(39.0, 38.0, 41.5, 36.0),
 		],
 	),
-	bumpers: [
-		{ pos: { x: 12.0, y: 26.0 }, r: 2.2 },
-		{ pos: { x: 32.0, y: 26.0 }, r: 2.2 },
-		{ pos: { x: 22.0, y: 25.5 }, r: 2.2 },
-	],
+	bumpers: [],
 	slings: shared_slings,
+	sling_fill: Table.sling_triangles,
 	lanes: [{ x: 16.5, y: 17.5 }, { x: 22.0, y: 17.5 }, { x: 27.5, y: 17.5 }],
 	lane_names: ["B", "O", "O"],
 	standups: [],
 	standup_names: [],
 	drops: [
-		{ a: { x: 7.0, y: 44.0 }, b: { x: 9.6, y: 44.0 } },
-		{ a: { x: 10.8, y: 44.0 }, b: { x: 13.4, y: 44.0 } },
-		{ a: { x: 14.6, y: 44.0 }, b: { x: 17.2, y: 44.0 } },
+		{ a: { x: 7.0, y: 45.0 }, b: { x: 9.6, y: 45.0 } },
+		{ a: { x: 10.8, y: 45.0 }, b: { x: 13.4, y: 45.0 } },
+		{ a: { x: 14.6, y: 45.0 }, b: { x: 17.2, y: 45.0 } },
 	],
 	drop_names: ["R", "I", "P"],
-	saucers: [{ x: 22.0, y: 34.0 }],
+	saucers: [{ x: 29.0, y: 44.0 }],
 	ramps: [
 		{
 			name: "SOUL RAMP",
-			entry: { x: 8.5, y: 36.0 },
+			entry: { x: 8.5, y: 37.0 },
 			entry_r: 2.3,
 			min_speed: 55.0,
-			path: [{ x: 8.5, y: 36.0 }, { x: 6.0, y: 20.0 }, { x: 14.0, y: 10.0 }, { x: 30.0, y: 10.0 }, { x: 38.0, y: 18.0 }, { x: 37.3, y: 50.5 }],
-			exit_speed: 18.0,
-		},
-		{
-			name: "CRYPT RAMP",
-			entry: { x: 33.0, y: 46.0 },
-			entry_r: 2.3,
-			min_speed: 60.0,
-			path: [{ x: 33.0, y: 46.0 }, { x: 36.0, y: 30.0 }, { x: 30.0, y: 12.0 }, { x: 14.0, y: 12.0 }, { x: 4.0, y: 24.0 }, { x: 6.7, y: 50.5 }],
+			path: [{ x: 8.5, y: 37.0 }, { x: 6.0, y: 20.0 }, { x: 14.0, y: 10.0 }, { x: 30.0, y: 10.0 }, { x: 38.0, y: 18.0 }, { x: 37.3, y: 50.5 }],
 			exit_speed: 18.0,
 		},
 	],
@@ -494,12 +519,16 @@ graveyard = {
 	left_flipper: Table.main_left,
 	right_flipper: Table.main_right,
 	kickbacks: [],
-	magnets: [],
+	magnets: [{ x: 22.0, y: 33.0 }],
 	portals: [],
 	movers: [],
 	spinners: [],
 	rotors: [],
-	ghosts: [],
+	ghosts: [
+		{ pos: { x: 13.0, y: 25.0 }, r: 2.3, period: 2.6, solid: 1.7 },
+		{ pos: { x: 31.0, y: 25.0 }, r: 2.3, period: 3.0, solid: 2.0 },
+		{ pos: { x: 22.0, y: 23.5 }, r: 2.3, period: 3.4, solid: 2.2 },
+	],
 	palette: {
 		wall_top: 0x7DFF6A,
 		wall_bottom: 0x6A2CFF,
@@ -515,5 +544,79 @@ graveyard = {
 		lane_lit: 0x7DFF6A,
 		target_lit: 0xFF3B3B,
 		ramp: 0x3A7A3A,
+	},
+}
+
+## Clockwork: an hourglass. The upper chamber (G-E-A-R lanes, a spinning
+## rotor, two bumpers and the escapement saucer) funnels to a waist guarded
+## by a second flipper pair; below it, a spinner and T-O-C-K targets above
+## the standard lower field.
+clockwork : Table.Layout
+clockwork = {
+	name: "CLOCKWORK",
+	blurb: "Two chambers, four flippers, mind the rotor",
+	gravity: 76.0,
+	walls: List.concat(
+		List.concat(arch(0.5), List.concat(cabinet, inlanes_and_slings)),
+		[
+			# Upper chamber lane dividers.
+			seg(10.0, 15.0, 10.0, 20.5),
+			seg(16.5, 15.0, 16.5, 20.5),
+			seg(23.0, 15.0, 23.0, 20.5),
+			seg(29.5, 15.0, 29.5, 20.5),
+			seg(36.0, 15.0, 36.0, 20.5),
+			# The hourglass funnel down to the waist flippers.
+			seg(1.0, 29.0, 13.2, 38.2),
+			seg(43.0, 29.0, 30.8, 38.2),
+		],
+	),
+	bumpers: [
+		{ pos: { x: 10.0, y: 25.0 }, r: 2.2 },
+		{ pos: { x: 34.0, y: 25.0 }, r: 2.2 },
+	],
+	slings: shared_slings,
+	sling_fill: Table.sling_triangles,
+	lanes: [{ x: 13.25, y: 18.0 }, { x: 19.75, y: 18.0 }, { x: 26.25, y: 18.0 }, { x: 32.75, y: 18.0 }],
+	lane_names: ["G", "E", "A", "R"],
+	standups: [
+		{ a: { x: 1.6, y: 43.0 }, b: { x: 1.6, y: 46.0 } },
+		{ a: { x: 1.6, y: 48.0 }, b: { x: 1.6, y: 51.0 } },
+		{ a: { x: 42.4, y: 43.0 }, b: { x: 42.4, y: 46.0 } },
+		{ a: { x: 42.4, y: 48.0 }, b: { x: 42.4, y: 51.0 } },
+	],
+	standup_names: ["T", "O", "C", "K"],
+	drops: [],
+	drop_names: [],
+	saucers: [{ x: 22.0, y: 32.0 }],
+	ramps: [],
+	ramp_cars_for_lock: 0,
+	uppers: [
+		{ pivot: { x: 14.0, y: 39.0 }, side: Left, length: Table.flipper_length, rest: Table.left_rest, up: Table.left_up },
+		{ pivot: { x: 30.0, y: 39.0 }, side: Right, length: Table.flipper_length, rest: Table.right_rest, up: Table.right_up },
+	],
+	left_flipper: Table.main_left,
+	right_flipper: Table.main_right,
+	kickbacks: [],
+	magnets: [],
+	portals: [],
+	movers: [],
+	spinners: [{ a: { x: 19.5, y: 50.0 }, b: { x: 24.5, y: 50.0 } }],
+	rotors: [{ center: { x: 22.0, y: 25.0 }, length: 4.2, speed: 2.4 }],
+	ghosts: [],
+	palette: {
+		wall_top: 0xF2C46D,
+		wall_bottom: 0x9C5B2E,
+		bumper_ring: 0xC8A04A,
+		bumper_in: 0xFFF2CC,
+		bumper_out: 0xE0B060,
+		sling: 0xE8C27A,
+		sling_fill: 0x3A2410,
+		flipper: 0xF5E6C8,
+		bg_top: 0x0E0A06,
+		bg_bottom: 0x1E1408,
+		grid: 0x3A2A16,
+		lane_lit: 0xFFD27A,
+		target_lit: 0x6AE0FF,
+		ramp: 0x7A5A2A,
 	},
 }

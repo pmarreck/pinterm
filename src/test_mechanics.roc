@@ -143,3 +143,23 @@ expect {
 	(_, lines) = run_logged(in_play(on_table(gate), 22.0, 50.5, 0.0, -2.0), 10)
 	lines.count_if(|l| l.starts_with("event spin")) == 1
 }
+
+# ---------- rules that tie toys into the game ----------
+
+# Every third train hit adds a car toward the lock, like a ramp.
+expect {
+	g0 = on_table({ ..classic, movers: [train], ramp_cars_for_lock: 4 })
+	hit = |g| run_frames(in_play({ ..g, time: 0.0, mover_cool: 0.0 }, 10.0, 47.0, 0.0, 30.0), 8)
+	one = hit(g0)
+	three = hit(hit(one))
+	one.cars == 0 and three.cars == 1 and three.mover_hits == 3
+}
+
+# Completing the top lanes relights the kickback.
+expect {
+	g0 = on_table({ ..started.table, kickbacks: [{ x: 3.0, y: 66.0 }] })
+	g = { ..g0, kickback_lit: Bool.False, lanes_lit: List.repeat(Bool.True, started.table.lanes.len()).set(0, Bool.False) ?? [] }
+	lane = started.table.lanes.get(0) ?? { x: 0.0, y: 0.0 }
+	after = run_frames(in_play(g, lane.x, lane.y + 1.5, 0.0, -20.0), 6)
+	after.kickback_lit
+}

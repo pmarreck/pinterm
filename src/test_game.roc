@@ -290,7 +290,7 @@ expect {
 		$i = $i + 1
 	}
 	back = press(attract, PrevTable)
-	$seen == [1, 2, 3, 0] and back.table_index == Table.count - 1 and back.table.name == (Table.at(Table.count - 1)).name
+	$seen == $seen.map_with_index(|_, i| (i + 1) % Table.count) and $seen.len() == Table.count and back.table_index == Table.count - 1 and back.table.name == (Table.at(Table.count - 1)).name
 }
 
 # The switch is animated: the slide is under way at once and done after transition_time.
@@ -404,7 +404,7 @@ expect {
 	g0 = started_on(1)
 	g = in_play({ ..g0, drops_down: [Bool.True, Bool.True, Bool.True, Bool.True, Bool.True, Bool.False] }, 32.2, 45.0, 0.0, -60.0)
 	(done, lines) = run_logged(g, 20)
-	reset = run_frames({ ..done, balls: [{ pos: { x: 22.0, y: 20.0 }, vel: { x: 0.0, y: 0.0 }, r: Table.ball_radius }] }, 300)
+	reset = run_frames({ ..done, balls: [], on_plunger: Bool.True }, 300)
 	lines.any(|l| l.starts_with("event drops_complete")) and done.lock_lit and reset.drops_down.all(|d| !d)
 }
 
@@ -443,4 +443,35 @@ expect {
 expect {
 	g = press(started, NextTable)
 	g.table_index == 0 and g.message == "CHANGE TABLES BETWEEN GAMES" and g.log.any(|l| l.starts_with("event table_locked"))
+}
+
+# Every table: in a minute of seeded random play (relaunching whenever a ball
+# waits), no ball gets trapped. A trap shows up as repeated ball searches,
+# since the search kicks a still ball after 3 s.
+expect {
+	var $worst = 0.U64
+	var $t = 0
+	while $t < Table.count {
+		for seed in [3, 8] {
+			var $g = { ..Game.step(Game.new_on(seed, $t), frame, [Press(Start)]), exact_keys: Bool.True }
+			var $r = seed.times_wrap(2654435761)
+			var $searches = 0.U64
+			var $i = 0
+			while $i < 3600 {
+				$r = $r.times_wrap(6364136223846793005).plus_wrap(1442695040888963407)
+				roll = $r.shr_zf_wrap(59)
+				ev = if $g.on_plunger and $i % 90 == 0 [Press(Plunger)] else if $g.on_plunger and $i % 90 == 40 [Release(Plunger)] else if roll == 0 [Press(LeftFlip)] else if roll == 1 [Release(LeftFlip)] else if roll == 2 [Press(RightFlip)] else if roll == 3 [Release(RightFlip)] else []
+				$g = Game.step($g, frame, ev)
+				if $g.log.any(|l| l == "event ball_search") {
+					$searches = $searches + 1
+				}
+				$i = $i + 1
+			}
+			if $searches > $worst {
+				$worst = $searches
+			}
+		}
+		$t = $t + 1
+	}
+	$worst <= 2
 }

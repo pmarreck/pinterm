@@ -34,7 +34,7 @@ for size in 100x40 80x24; do
 done
 
 # Every alternate table, selected with ] between games (slide frames included).
-for t in 1 2 3; do
+for t in 1 2 3 4; do
 	awk -v t="$t" 'BEGIN { for (i = 0; i < t; i++) print 2 + 3 * i " ]"; print "60 space"; print "61 release-space"; for (f = 90; f < 4000; f++) { if (f % 600 == 0) print f " space"; else if (f % 600 == 40) print f " release-space"; else if (f % 23 == 0) print f " z"; else if (f % 23 == 6) print f " release-z"; else if (f % 29 == 0) print f " /"; else if (f % 29 == 7) print f " release-slash" } }' >"$dir/script-$t"
 	capture timeout 60 "$bin" --headless --size 100x40 --frames 4000 --seed 11 --script "$dir/script-$t" --frames-out "$dir/native-frames-t$t" --log-out "$dir/native-log-t$t"
 	check "native replay on table $t" [ "$rc" -eq 0 ]

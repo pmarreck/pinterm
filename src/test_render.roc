@@ -153,3 +153,46 @@ expect {
 			and iron.contains("C-O-A-L") and iron.contains("4 ramps")
 				and grave.contains("R-I-P") and grave.contains("B-O-O lanes")
 }
+
+# ---------- table toys are drawn where the physics puts them ----------
+
+bare : Table.Layout
+bare = { ..started.table, bumpers: [], slings: [], lanes: [], lane_names: [], standups: [], standup_names: [], saucers: [], ramps: [] }
+
+toy_lay : Render.Layout
+toy_lay = Render.layout(100, 40)
+
+# The playfield pixel at world point p for state g.
+pix : Game.State, { x : F64, y : F64 } -> U32
+pix = |g, p| Render.pixel_at(toy_lay, Render.playfield(g, toy_lay, Render.static_pixels(toy_lay, g.table)), p)
+
+spot : { x : F64, y : F64 }
+spot = { x: 22.0, y: 50.0 }
+
+# Each toy changes the pixel at its own position.
+expect {
+	plain = pix({ ..started, table: bare }, spot)
+	shows = |table| pix({ ..started, table }, spot) != plain
+	shows({ ..bare, kickbacks: [spot] })
+		and shows({ ..bare, magnets: [spot] })
+			and shows({ ..bare, portals: [{ a: spot, b: { x: 30.0, y: 20.0 } }] })
+				and shows({ ..bare, spinners: [{ a: { x: 20.0, y: 50.0 }, b: { x: 24.0, y: 50.0 } }] })
+					and shows({ ..bare, rotors: [{ center: spot, length: 4.0, speed: 0.0 }] })
+						and shows({ ..bare, ghosts: [{ pos: spot, r: 2.4, period: 2.0, solid: 1.0 }] })
+}
+
+# A mover is drawn at its current centre, not where it started.
+expect {
+	m = { a: { x: 10.0, y: 50.0 }, b: { x: 34.0, y: 50.0 }, half: 2.0, period: 4.0 }
+	g = { ..started, table: { ..bare, movers: [m] }, time: 2.0 }
+	empty = { ..started, table: bare, time: 2.0 }
+	pix(g, m.b) != pix(empty, m.b) and pix(g, m.a) == pix(empty, m.a)
+}
+
+# A ghost bumper looks different solid and faded; a lit kickback differs from an unlit one.
+expect {
+	gh = { pos: spot, r: 2.4, period: 2.0, solid: 1.0 }
+	g = { ..started, table: { ..bare, ghosts: [gh] } }
+	k = { ..started, table: { ..bare, kickbacks: [spot] } }
+	pix({ ..g, time: 0.5 }, spot) != pix({ ..g, time: 1.5 }, spot) and pix({ ..k, kickback_lit: Bool.True }, spot) != pix({ ..k, kickback_lit: Bool.False }, spot)
+}

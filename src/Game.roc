@@ -916,6 +916,9 @@ step_ball = |g, b0| {
 			if c.impact > 6.0 and $g.time >= $g.mover_cool {
 				hits = $g.mover_hits + 1
 				$g = note(emit(award({ ..$g, mover_hits: hits, mover_cool: $g.time + 0.2 }, 1000, $b.pos), Target), "event mover_hit hits=${hits.to_str()}")
+				if hits % 3 == 0 and $g.table.ramp_cars_for_lock > 0 {
+					$g = add_car($g)
+				}
 			}
 		}
 	}
@@ -944,7 +947,7 @@ step_ball = |g, b0| {
 	for spec in table.uppers {
 		f = $g.uppers.get($ui) ?? { angle: spec.rest, omega: 0.0, down: Bool.False, until: 0.0 }
 		tip = Game.tip_at(spec.pivot, f.angle, spec.length)
-		uc = Physics.collide_flipper($b, spec.pivot, tip, Table.flipper_thickness * 0.85, f.omega, flipper_restitution)
+		uc = Physics.collide_flipper($b, spec.pivot, tip, Table.flipper_thickness, f.omega, flipper_restitution)
 		if uc.hit {
 			$b = uc.ball
 		}
@@ -1083,7 +1086,7 @@ rollover = |g, i, pos| {
 	g2 = award({ ..g1, lanes_lit: lit, lanes_hit: g1.lanes_hit + 1 }, 250, pos)
 	if lit.all(|x| x) {
 		mult = if g2.mult < 5 g2.mult + 1 else 5
-		g3 = { ..g2, lanes_lit: List.repeat(Bool.False, lit.len()), mult, score: g2.score + 1000 }
+		g3 = { ..g2, lanes_lit: List.repeat(Bool.False, lit.len()), mult, score: g2.score + 1000, kickback_lit: Bool.True }
 		note(emit(announce(g3, "BONUS X${mult.to_str()}", 2.0), LanesDone), "event lanes_complete mult=${mult.to_str()}")
 	} else {
 		emit(g2, Rollover)
@@ -1120,14 +1123,8 @@ ramp_award = |g, ramp, pos| {
 	} else {
 		g1
 	}
-	need = g.table.ramp_cars_for_lock
-	g3 = if need > 0 and !g2.multiball {
-		cars = g2.cars + 1
-		if cars >= need and !g2.lock_lit {
-			announce({ ..g2, cars: 0, lock_lit: Bool.True }, "ALL ABOARD - SAUCER LIT", 2.5)
-		} else {
-			announce({ ..g2, cars }, "CAR ${cars.to_str()} ADDED", 1.5)
-		}
+	g3 = if g.table.ramp_cars_for_lock > 0 and !g2.multiball {
+		add_car(g2)
 	} else if combo >= 2 {
 		announce(g2, "${ramp.name} COMBO X${combo.to_str()}", 1.5)
 	} else {
@@ -1322,4 +1319,21 @@ set_grow : List(F64), U64, F64 -> List(F64)
 set_grow = |list, i, v| {
 	padded = if list.len() > i list else List.concat(list, List.repeat(0.0, i + 1 - list.len()))
 	set_at(padded, i, v)
+}
+
+## Add a train car (ramps and train hits on car tables); enough cars light
+## the lock. No cars are added during multiball.
+add_car : State -> State
+add_car = |g| {
+	need = g.table.ramp_cars_for_lock
+	if g.multiball or need == 0 {
+		g
+	} else {
+		cars = g.cars + 1
+		if cars >= need and !g.lock_lit {
+			announce({ ..g, cars: 0, lock_lit: Bool.True }, "ALL ABOARD - SAUCER LIT", 2.5)
+		} else {
+			note(announce({ ..g, cars }, "CAR ${cars.to_str()} ADDED", 1.5), "event car cars=${cars.to_str()}")
+		}
+	}
 }
