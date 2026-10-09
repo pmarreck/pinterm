@@ -451,10 +451,10 @@ dynamic_pixels = |g, lay, base| {
 	}
 	# Flippers, including any upper flippers.
 	flip_color = if g.tilted px_of(kind_flipper, 0x5A4A20) else px_of(kind_flipper, pal.flipper)
-	lt = Game.flipper_tip(Table.left_pivot, g.left.angle)
-	rt = Game.flipper_tip(Table.right_pivot, g.right.angle)
-	$buf = paint_capsule($buf, lay, Table.left_pivot, lt, Table.flipper_thickness, flip_color)
-	$buf = paint_capsule($buf, lay, Table.right_pivot, rt, Table.flipper_thickness, flip_color)
+	lt = Game.flipper_tip(g.table.left_flipper, g.left.angle)
+	rt = Game.flipper_tip(g.table.right_flipper, g.right.angle)
+	$buf = paint_capsule($buf, lay, g.table.left_flipper.pivot, lt, Table.flipper_thickness, flip_color)
+	$buf = paint_capsule($buf, lay, g.table.right_flipper.pivot, rt, Table.flipper_thickness, flip_color)
 	var $ui = 0
 	for spec in table.uppers {
 		angle = (g.uppers.get($ui) ?? { angle: spec.rest, omega: 0.0, down: Bool.False, until: 0.0 }).angle

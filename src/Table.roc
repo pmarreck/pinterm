@@ -40,6 +40,8 @@ Table :: [].{
 		ramps : List(Ramp),
 		ramp_cars_for_lock : U64,
 		uppers : List(Upper),
+		left_flipper : Upper,
+		right_flipper : Upper,
 		palette : Palette,
 	}
 
@@ -89,6 +91,13 @@ Table :: [].{
 
 	right_up : F64
 	right_up = F64.pi + 0.50
+
+	## The standard lower flipper pair; a table may place its own.
+	main_left : Upper
+	main_left = { pivot: Table.left_pivot, side: Left, length: Table.flipper_length, rest: Table.left_rest, up: Table.left_up }
+
+	main_right : Upper
+	main_right = { pivot: Table.right_pivot, side: Right, length: Table.flipper_length, rest: Table.right_rest, up: Table.right_up }
 
 	## The one-way gate at the top of the plunger lane: solid only for balls on
 	## the playfield side, so launched balls pass but play cannot fall back in.
@@ -215,6 +224,8 @@ classic_layout = {
 	ramps: [],
 	ramp_cars_for_lock: 0,
 	uppers: [],
+	left_flipper: Table.main_left,
+	right_flipper: Table.main_right,
 	palette: {
 		wall_top: 0x00E5FF,
 		wall_bottom: 0xB44DFF,
@@ -287,6 +298,8 @@ orbital = {
 	],
 	ramp_cars_for_lock: 0,
 	uppers: [],
+	left_flipper: Table.main_left,
+	right_flipper: Table.main_right,
 	palette: {
 		wall_top: 0x4CC9FF,
 		wall_bottom: 0x7B2CFF,
@@ -364,6 +377,8 @@ iron_horse = {
 	],
 	ramp_cars_for_lock: 4,
 	uppers: [],
+	left_flipper: Table.main_left,
+	right_flipper: Table.main_right,
 	palette: {
 		wall_top: 0xFFB347,
 		wall_bottom: 0xC0392B,
@@ -438,6 +453,8 @@ graveyard = {
 	],
 	ramp_cars_for_lock: 0,
 	uppers: [{ pivot: { x: 40.0, y: 40.0 }, side: Right, length: 4.6, rest: F64.pi - 0.45, up: F64.pi + 0.35 }],
+	left_flipper: Table.main_left,
+	right_flipper: Table.main_right,
 	palette: {
 		wall_top: 0x7DFF6A,
 		wall_bottom: 0x6A2CFF,

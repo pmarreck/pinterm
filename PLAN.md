@@ -17,6 +17,14 @@
 - [x] Motion nudge: device bump (7.5 m/s², 0.4 s cooldown) nudges via the same input as t; permission on gesture end; unit + Chromium tests. (2026-10-08 09:00 EDT)
 - [x] Alternate tables (Orbital, Iron Horse, Graveyard; after Pinball Dreams' Ignition/Steel Wheel/Nightmare and Space Cadet), drop targets, ramps, upper flipper, per-table highs; [ ] / PageUp/PageDown and sideways swipe between games; smoothstep slide; per-table property tests and native/wasm differential on every table; ?table=N. (2026-10-08 10:30 EDT)
 - [x] Swipe left/right "not working" on a real phone was swipes starting in the lower flipper corners, which are flipper zones by design; middle-to-top swipes work. ?diag overlay and mid-game "between games" message shipped. (2026-10-08 20:35 EDT) Emulated swipe passes on the live site. Add aedicule-style ?diag overlay (touch counts, last gesture dx/dy/classification/keys, game mode, build id) to get device evidence; give feedback when a table key arrives mid-game.
+- Make the tables genuinely distinct (2026-10-08: "mostly the same"). Decided: per-table whole geometry, unique mechanics, art and sound; identical flipper physics; deepen the four and add a fifth.
+  - [ ] Per-table flipper sets (data, same physics); Classic byte-identical (replay hash recorded before the refactor).
+  - [ ] Mechanics, test-first: kickback, magnet, wormhole portals, moving target, spinner, rotor.
+  - [ ] Redesign Orbital (open field, top orbit, wormholes), Iron Horse (3 flippers, kickback, moving train), Graveyard (ghost magnet, phasing bumpers).
+  - [ ] Fifth table: Clockwork (hourglass, two flipper pairs, rotor).
+  - [ ] Per-table background art (show Peter screenshots before asserting).
+  - [ ] Per-table sound palette and start/drain jingles.
+  - [ ] README, push, CI, deploy.
 - [ ] Unreproduced flake (2026-10-08): one ./test run failed in the web build with roc "invalid platform: header declares platform glue as its platform, but that package does not have a platform header" (from `roc glue CGlue.roc`). Not reproduced in 96 concurrent glue runs (vs glue, vs cached roc test, vs native roc build). Next: capture full roc output when it recurs; consider serializing the two glue steps.
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)

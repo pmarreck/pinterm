@@ -150,8 +150,8 @@ Game :: [].{
 			pull_start: 0.0,
 			pull_last: 0.0,
 			pull_repeats: 0,
-			left: { angle: Table.left_rest, omega: 0.0, down: Bool.False, until: 0.0 },
-			right: { angle: Table.right_rest, omega: 0.0, down: Bool.False, until: 0.0 },
+			left: { angle: table.left_flipper.rest, omega: 0.0, down: Bool.False, until: 0.0 },
+			right: { angle: table.right_flipper.rest, omega: 0.0, down: Bool.False, until: 0.0 },
 			uppers: table.uppers.map(|u| { angle: u.rest, omega: 0.0, down: Bool.False, until: 0.0 }),
 			exact_keys: Bool.False,
 			mult: 1,
@@ -226,8 +226,8 @@ Game :: [].{
 	}
 
 	## Flipper end point for rendering and collision (main flippers).
-	flipper_tip : V, F64 -> V
-	flipper_tip = |pivot, angle| tip_at(pivot, angle, Table.flipper_length)
+	flipper_tip : Table.Upper, F64 -> V
+	flipper_tip = |spec, angle| tip_at(spec.pivot, angle, spec.length)
 
 	## End point of a flipper of any length.
 	tip_at : V, F64, F64 -> V
@@ -750,16 +750,16 @@ move_uppers = |g, dt, settle| {
 
 settle_flippers : State, F64 -> State
 settle_flippers = |g, dt| {
-	left = move_flipper(g.left, Table.left_rest, dt, 1.0)
-	right = move_flipper(g.right, Table.right_rest, dt, -1.0)
+	left = move_flipper(g.left, g.table.left_flipper.rest, dt, 1.0)
+	right = move_flipper(g.right, g.table.right_flipper.rest, dt, -1.0)
 	{ ..g, left, right, uppers: move_uppers(g, dt, Bool.True) }
 }
 
 substep_all : State -> State
 substep_all = |g0| {
 	dt = Game.substep
-	left = move_flipper(g0.left, if held_now(g0, g0.left) Table.left_up else Table.left_rest, dt, 1.0)
-	right = move_flipper(g0.right, if held_now(g0, g0.right) Table.right_up else Table.right_rest, dt, -1.0)
+	left = move_flipper(g0.left, if held_now(g0, g0.left) g0.table.left_flipper.up else g0.table.left_flipper.rest, dt, 1.0)
+	right = move_flipper(g0.right, if held_now(g0, g0.right) g0.table.right_flipper.up else g0.table.right_flipper.rest, dt, -1.0)
 	g1 = { ..g0, left, right, uppers: move_uppers(g0, dt, Bool.False) }
 	var $g = { ..g1, balls: [] }
 	for ball in g1.balls {
@@ -854,13 +854,13 @@ step_ball = |g, b0| {
 		$di = $di + 1
 	}
 	# Flippers.
-	lt = Game.flipper_tip(Table.left_pivot, $g.left.angle)
-	lc = Physics.collide_flipper($b, Table.left_pivot, lt, Table.flipper_thickness, $g.left.omega, flipper_restitution)
+	lt = Game.flipper_tip($g.table.left_flipper, $g.left.angle)
+	lc = Physics.collide_flipper($b, $g.table.left_flipper.pivot, lt, Table.flipper_thickness, $g.left.omega, flipper_restitution)
 	if lc.hit {
 		$b = lc.ball
 	}
-	rt = Game.flipper_tip(Table.right_pivot, $g.right.angle)
-	rc = Physics.collide_flipper($b, Table.right_pivot, rt, Table.flipper_thickness, $g.right.omega, flipper_restitution)
+	rt = Game.flipper_tip($g.table.right_flipper, $g.right.angle)
+	rc = Physics.collide_flipper($b, $g.table.right_flipper.pivot, rt, Table.flipper_thickness, $g.right.omega, flipper_restitution)
 	if rc.hit {
 		$b = rc.ball
 	}
