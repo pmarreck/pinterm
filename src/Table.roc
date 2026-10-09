@@ -7,6 +7,16 @@
 Table :: [].{
 	Ramp : { name : Str, entry : V, entry_r : F64, min_speed : F64, path : List(V), exit_speed : F64 }
 	Upper : { pivot : V, side : [Left, Right], length : F64, rest : F64, up : F64 }
+
+	## A bar that slides back and forth between a and b (centre path), `half`
+	## long either side along its travel, one round trip per `period` seconds.
+	Mover : { a : V, b : V, half : F64, period : F64 }
+
+	## A bar spinning about `center` at `speed` rad/s, `length` each side.
+	Rotor : { center : V, length : F64, speed : F64 }
+
+	## A bumper that is solid for `solid` of every `period` seconds.
+	Ghost : { pos : V, r : F64, period : F64, solid : F64 }
 	Palette : {
 		wall_top : U32,
 		wall_bottom : U32,
@@ -42,6 +52,13 @@ Table :: [].{
 		uppers : List(Upper),
 		left_flipper : Upper,
 		right_flipper : Upper,
+		kickbacks : List(V),
+		magnets : List(V),
+		portals : List({ a : V, b : V }),
+		movers : List(Mover),
+		spinners : List(Seg),
+		rotors : List(Rotor),
+		ghosts : List(Ghost),
 		palette : Palette,
 	}
 
@@ -226,6 +243,13 @@ classic_layout = {
 	uppers: [],
 	left_flipper: Table.main_left,
 	right_flipper: Table.main_right,
+	kickbacks: [],
+	magnets: [],
+	portals: [],
+	movers: [],
+	spinners: [],
+	rotors: [],
+	ghosts: [],
 	palette: {
 		wall_top: 0x00E5FF,
 		wall_bottom: 0xB44DFF,
@@ -300,6 +324,13 @@ orbital = {
 	uppers: [],
 	left_flipper: Table.main_left,
 	right_flipper: Table.main_right,
+	kickbacks: [],
+	magnets: [],
+	portals: [],
+	movers: [],
+	spinners: [],
+	rotors: [],
+	ghosts: [],
 	palette: {
 		wall_top: 0x4CC9FF,
 		wall_bottom: 0x7B2CFF,
@@ -379,6 +410,13 @@ iron_horse = {
 	uppers: [],
 	left_flipper: Table.main_left,
 	right_flipper: Table.main_right,
+	kickbacks: [],
+	magnets: [],
+	portals: [],
+	movers: [],
+	spinners: [],
+	rotors: [],
+	ghosts: [],
 	palette: {
 		wall_top: 0xFFB347,
 		wall_bottom: 0xC0392B,
@@ -455,6 +493,13 @@ graveyard = {
 	uppers: [{ pivot: { x: 40.0, y: 40.0 }, side: Right, length: 4.6, rest: F64.pi - 0.45, up: F64.pi + 0.35 }],
 	left_flipper: Table.main_left,
 	right_flipper: Table.main_right,
+	kickbacks: [],
+	magnets: [],
+	portals: [],
+	movers: [],
+	spinners: [],
+	rotors: [],
+	ghosts: [],
 	palette: {
 		wall_top: 0x7DFF6A,
 		wall_bottom: 0x6A2CFF,

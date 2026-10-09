@@ -70,6 +70,14 @@ Game :: [].{
 		drop_flash : List(F64),
 		drop_reset_at : F64,
 		riders : List(Rider),
+		kickback_lit : Bool,
+		magnet_hold : List({ ball : Game.Ball, magnet : U64, until : F64 }),
+		magnet_cool : F64,
+		portal_cool : F64,
+		spinner_cool : List(F64),
+		spinner_spin : List(F64),
+		mover_cool : F64,
+		mover_hits : U64,
 		ramp_combo : I64,
 		ramp_combo_until : F64,
 		cars : U64,
@@ -162,6 +170,14 @@ Game :: [].{
 			drop_flash: List.repeat(-10.0, table.drops.len()),
 			drop_reset_at: 0.0,
 			riders: [],
+			kickback_lit: Bool.True,
+			magnet_hold: [],
+			magnet_cool: 0.0,
+			portal_cool: 0.0,
+			spinner_cool: List.repeat(0.0, table.spinners.len()),
+			spinner_spin: List.repeat(0.0, table.spinners.len()),
+			mover_cool: 0.0,
+			mover_hits: 0,
 			ramp_combo: 0,
 			ramp_combo_until: 0.0,
 			cars: 0,
@@ -228,6 +244,26 @@ Game :: [].{
 	## Flipper end point for rendering and collision (main flippers).
 	flipper_tip : Table.Upper, F64 -> V
 	flipper_tip = |spec, angle| tip_at(spec.pivot, angle, spec.length)
+
+	## Centre of a sliding bar at time t: eases a -> b -> a once per period
+	## (cosine profile, so it slows at each end like a shuttle).
+	mover_center : Table.Mover, F64 -> V
+	mover_center = |m, t| {
+		u = (1.0 - (2.0 * F64.pi * t / m.period).cos()) / 2.0
+		Physics.add(m.a, Physics.scale(Physics.sub(m.b, m.a), u))
+	}
+
+	## Rotor bar angle at time t (constant angular speed).
+	rotor_angle : Table.Rotor, F64 -> F64
+	rotor_angle = |r, t| r.speed * t
+
+	## Whether a ghost bumper is solid at time t (the first `solid` seconds of
+	## each period).
+	ghost_solid : Table.Ghost, F64 -> Bool
+	ghost_solid = |gh, t| {
+		cycles = (t / gh.period).floor_to_u64_try() ?? 0
+		t - cycles.to_f64() * gh.period < gh.solid
+	}
 
 	## End point of a flipper of any length.
 	tip_at : V, F64, F64 -> V
@@ -631,6 +667,8 @@ next_ball = |g| {
 			tilt: 0.0,
 			save_spent: Bool.False,
 			tilted: Bool.False,
+			kickback_lit: Bool.True,
+			magnet_hold: [],
 			mult: 1,
 			cars: 0,
 			bumpers_hit: 0,
@@ -698,10 +736,10 @@ play = |g0, dt| {
 	while $g.acc >= Game.substep {
 		$g = substep_all({ ..$g, acc: $g.acc - Game.substep })
 	}
-	g3 = update_riders(update_saucer($g), dt)
+	g3 = update_riders(update_magnets(update_saucer($g)), dt)
 	g4 = reset_drops(g3)
 	g5 = unstick(g4, dt)
-	if g5.balls.is_empty() and g5.saucer_hold.is_empty() and g5.riders.is_empty() and !g5.on_plunger ball_lost(g5) else g5
+	if g5.balls.is_empty() and g5.saucer_hold.is_empty() and g5.magnet_hold.is_empty() and g5.riders.is_empty() and !g5.on_plunger ball_lost(g5) else g5
 }
 
 update_plunger : State -> State
@@ -853,6 +891,44 @@ step_ball = |g, b0| {
 		}
 		$di = $di + 1
 	}
+	# Ghost bumpers: solid only for part of each period.
+	for gh in table.ghosts {
+		if Game.ghost_solid(gh, $g.time) {
+			c = Physics.collide_circle($b, gh.pos, gh.r, 0.55, bumper_kick)
+			if c.hit {
+				$b = c.ball
+				if c.impact > 1.0 {
+					$g = emit(award($g, 200, gh.pos), Bumper($g.combo))
+				}
+			}
+		}
+	}
+	# Moving bars: the bar's own velocity is added to the bounce.
+	for m in table.movers {
+		center = Game.mover_center(m, $g.time)
+		travel = Physics.sub(m.b, m.a)
+		span = Physics.length(travel)
+		dir = if span > 0.0 Physics.scale(travel, 1.0 / span) else { x: 1.0, y: 0.0 }
+		ends = { a: Physics.sub(center, Physics.scale(dir, m.half)), b: Physics.add(center, Physics.scale(dir, m.half)) }
+		c = Physics.collide_moving($b, ends, Table.flipper_thickness, mover_velocity(m, $g.time), wall_restitution)
+		if c.hit {
+			$b = c.ball
+			if c.impact > 6.0 and $g.time >= $g.mover_cool {
+				hits = $g.mover_hits + 1
+				$g = note(emit(award({ ..$g, mover_hits: hits, mover_cool: $g.time + 0.2 }, 1000, $b.pos), Target), "event mover_hit hits=${hits.to_str()}")
+			}
+		}
+	}
+	# Rotors: a bar spinning about its centre, hit like a flipper.
+	for r in table.rotors {
+		angle = Game.rotor_angle(r, $g.time)
+		for tip in [Game.tip_at(r.center, angle, r.length), Game.tip_at(r.center, angle + F64.pi, r.length)] {
+			c = Physics.collide_flipper($b, r.center, tip, Table.flipper_thickness, r.speed, wall_restitution)
+			if c.hit {
+				$b = c.ball
+			}
+		}
+	}
 	# Flippers.
 	lt = Game.flipper_tip($g.table.left_flipper, $g.left.angle)
 	lc = Physics.collide_flipper($b, $g.table.left_flipper.pivot, lt, Table.flipper_thickness, $g.left.omega, flipper_restitution)
@@ -922,6 +998,17 @@ sensors = |g, b| {
 	} else if b.pos.x > Table.lane_left and b.pos.y > 71.5 and Physics.length(b.vel) < 4.0 and !g.on_plunger {
 		{ ..g, on_plunger: Bool.True }
 	} else {
+		(g1, b1) = toys(spin_check(g, b), b)
+		match magnet_at(g1, b1) {
+			Ok(i) => capture_magnet(g1, b1, i)
+			Err(_) => playfield_sensors(g1, b1)
+		}
+	}
+}
+
+playfield_sensors : State, Game.Ball -> State
+playfield_sensors = |g, b| {
+	{
 		match ramp_entered(g.table, b) {
 			Ok(i) => { ..g, riders: g.riders.append({ ramp: i, s: 0.0 }) }
 			Err(_) =>
@@ -1116,3 +1203,123 @@ reference_gravity = 72.0
 ## Tables only change between games; say so instead of ignoring the request.
 table_locked : State -> State
 table_locked = |g| note(announce(g, "CHANGE TABLES BETWEEN GAMES", 1.5), "event table_locked")
+
+# ---------- table toys ----------
+
+kickback_radius : F64
+kickback_radius = 1.8
+
+magnet_radius : F64
+magnet_radius = 2.2
+
+magnet_hold_time : F64
+magnet_hold_time = 0.8
+
+portal_radius : F64
+portal_radius = 1.6
+
+## Velocity of a sliding bar at time t (derivative of mover_center).
+mover_velocity : Table.Mover, F64 -> V
+mover_velocity = |m, t| {
+	w = 2.0 * F64.pi / m.period
+	Physics.scale(Physics.sub(m.b, m.a), 0.5 * w * (w * t).sin())
+}
+
+## Spinners: crossing one scores by speed (more spins for a faster ball) and
+## never blocks the ball.
+spin_check : State, Game.Ball -> State
+spin_check = |g, b| {
+	var $g = g
+	var $i = 0
+	for s in g.table.spinners {
+		close = Physics.length(Physics.sub(b.pos, Physics.closest_on_segment(b.pos, s.a, s.b))) < b.r
+		if close and g.time >= get_f64(g.spinner_cool, $i) {
+			spins = Physics.clamp(Physics.length(b.vel) / 14.0, 1.0, 8.0).round_to_i64_try() ?? 1
+			n = spins.to_f64()
+			g1 = { ..$g, spinner_cool: set_grow($g.spinner_cool, $i, g.time + 0.25), spinner_spin: set_grow($g.spinner_spin, $i, g.time + 0.08 * n) }
+			$g = note(emit(award(g1, 100 * spins, s.a), Rollover), "event spin n=${spins.to_str()}")
+		}
+		$i = $i + 1
+	}
+	$g
+}
+
+## Kickbacks and portals: sensors that redirect the ball in place.
+toys : State, Game.Ball -> (State, Game.Ball)
+toys = |g, b| {
+	var $g = g
+	var $b = b
+	for k in g.table.kickbacks {
+		if $g.kickback_lit and $b.vel.y > 0.0 and Physics.length(Physics.sub($b.pos, k)) < kickback_radius {
+			inward = if k.x < Table.width / 2.0 6.0 else -6.0
+			$b = { ..$b, vel: { x: inward, y: -105.0 } }
+			$g = note(emit(announce({ ..$g, kickback_lit: Bool.False }, "KICKBACK", 1.0), Launch(0.8)), "event kickback")
+		}
+	}
+	if $g.time >= $g.portal_cool {
+		for p in g.table.portals {
+			into_a = Physics.length(Physics.sub($b.pos, p.a)) < portal_radius
+			into_b = Physics.length(Physics.sub($b.pos, p.b)) < portal_radius
+			if (into_a or into_b) and $g.time >= $g.portal_cool {
+				out = if into_a p.b else p.a
+				$b = { ..$b, pos: out }
+				$g = note(emit({ ..$g, portal_cool: $g.time + 0.5 }, Skill), "event warp")
+			}
+		}
+	}
+	($g, $b)
+}
+
+magnet_at : State, Game.Ball -> Try(U64, [None])
+magnet_at = |g, b| {
+	if g.time < g.magnet_cool {
+		Err(None)
+	} else {
+		var $found = 0
+		var $hit = Bool.False
+		var $i = 0
+		for m in g.table.magnets {
+			if !$hit and Physics.length(Physics.sub(b.pos, m)) < magnet_radius {
+				$found = $i
+				$hit = Bool.True
+			}
+			$i = $i + 1
+		}
+		if $hit Ok($found) else Err(None)
+	}
+}
+
+capture_magnet : State, Game.Ball, U64 -> State
+capture_magnet = |g, b, i| {
+	spot = g.table.magnets.get(i) ?? b.pos
+	held = { ball: { ..b, pos: spot, vel: { x: 0.0, y: 0.0 } }, magnet: i, until: g.time + magnet_hold_time }
+	note(emit(award({ ..g, magnet_hold: g.magnet_hold.append(held) }, 500, spot), Saucer), "event magnet")
+}
+
+## Release held balls: flung upward at a random angle, hard.
+update_magnets : State -> State
+update_magnets = |g| {
+	if g.magnet_hold.is_empty() or g.magnet_hold.all(|h| h.until > g.time) {
+		g
+	} else {
+		var $g = { ..g, magnet_hold: [], magnet_cool: g.time + 0.8 }
+		for h in g.magnet_hold {
+			if h.until > g.time {
+				$g = { ..$g, magnet_hold: $g.magnet_hold.append(h) }
+			} else {
+				(u, g1) = rand($g)
+				angle = -F64.pi / 2.0 + (u - 0.5) * 2.2
+				out = { ..h.ball, vel: { x: 90.0 * angle.cos(), y: 90.0 * angle.sin() } }
+				$g = note(emit({ ..g1, balls: g1.balls.append(out) }, Launch(1.0)), "event magnet_release")
+			}
+		}
+		$g
+	}
+}
+
+## Set index i, growing the list with zeros first if it is too short.
+set_grow : List(F64), U64, F64 -> List(F64)
+set_grow = |list, i, v| {
+	padded = if list.len() > i list else List.concat(list, List.repeat(0.0, i + 1 - list.len()))
+	set_at(padded, i, v)
+}

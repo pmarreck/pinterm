@@ -46,6 +46,10 @@ Physics :: [].{
 		contact_point(ball, c, thickness, surface, restitution, 0.0)
 	}
 
+	## Moving wall segment (sliding bar): reflect relative to its velocity.
+	collide_moving : Ball, Seg, F64, V, F64 -> Contact
+	collide_moving = |ball, seg, thickness, surface, restitution| contact_point(ball, closest_on_segment(ball.pos, seg.a, seg.b), thickness, surface, restitution, 0.0)
+
 	## Round bumper: reflect, then add an outward `kick` speed when struck.
 	collide_circle : Ball, V, F64, F64, F64 -> Contact
 	collide_circle = |ball, center, radius, restitution, kick| contact_point(ball, center, radius, { x: 0.0, y: 0.0 }, restitution, kick)
