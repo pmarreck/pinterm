@@ -150,7 +150,7 @@ expect {
 	grave = help_text(Game.new_on(42, 3))
 	classic.contains("P-I-N lanes") and classic.contains("T-E-R-M") and classic.contains("[ ] new table")
 		and orbital.contains("W-A-R-P lanes") and orbital.contains("I-G-N-I-T-E") and !orbital.contains("T-E-R-M")
-			and iron.contains("C-O-A-L") and iron.contains("4 ramps")
+			and iron.contains("C-O-A-L") and iron.contains("4 cars")
 				and grave.contains("R-I-P") and grave.contains("B-O-O lanes")
 }
 
@@ -215,4 +215,16 @@ expect {
 		changed * 50 > with_art.len() and gameplay_same and gameplay_kept
 	}
 	(Table.at(0)).art == Grid and check(1) and check(2) and check(3) and check(4)
+}
+
+# The help overlay also names each table's toys.
+expect {
+	orbital = help_text(Game.new_on(42, 1))
+	iron = help_text(Game.new_on(42, 2))
+	grave = help_text(Game.new_on(42, 3))
+	clock = help_text(Game.new_on(42, 4))
+	orbital.contains("Wormhole") and orbital.contains("Spinner")
+		and iron.contains("Train") and iron.contains("Kickback") and iron.contains("4 cars")
+			and grave.contains("Magnet") and grave.contains("Ghost")
+				and clock.contains("Rotor") and clock.contains("G-E-A-R") and clock.contains("T-O-C-K")
 }

@@ -944,14 +944,25 @@ draw_help : List(Render.Cell), Table.Layout, Render.Layout -> List(Render.Cell)
 draw_help = |cells, table, lay| {
 	dashed = |names| Str.join_with(names, "-")
 	feature = |names, text| if names.is_empty() [] else [" ${text}"]
+	cars = table.ramp_cars_for_lock
 	ramp_rule =
-		if table.ramps.is_empty() [] else if table.ramp_cars_for_lock > 0 [" ${table.ramp_cars_for_lock.to_str()} ramps: lights saucer"] else [" Ramps: combos, super jackpot"]
+		if table.ramps.is_empty() [] else if cars > 0 [" Ramps add train cars", " ${cars.to_str()} cars light the saucer"] else [" Ramps: combos, super jackpot"]
+	toy = |list, text| if list.is_empty() [] else [" ${text}"]
+	toy_rules = List.join([
+		toy(table.kickbacks, "Kickback: the lanes relight it"),
+		toy(table.portals, "Wormhole: warps the ball"),
+		toy(table.spinners, "Spinner: faster scores more"),
+		toy(table.movers, if cars > 0 "Train: every 3rd hit adds a car" else "Hit the moving bar"),
+		toy(table.magnets, "Magnet: grabs and flings"),
+		toy(table.rotors, "Rotor: a spinning bar"),
+		toy(table.ghosts, "Ghost bumpers fade in and out"),
+	])
 	rules = List.concat(
 		List.concat(
 			List.concat(feature(table.lane_names, "Light ${dashed(table.lane_names)} lanes: bonus X"), feature(table.standup_names, "Hit ${dashed(table.standup_names)}: lights saucer")),
 			feature(table.drop_names, "Drop ${dashed(table.drop_names)}: lights saucer"),
 		),
-		ramp_rule,
+		List.concat(ramp_rule, toy_rules),
 	)
 	lines = List.concat(
 		List.concat(
