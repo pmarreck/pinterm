@@ -125,7 +125,10 @@ replay options used by the tests.
   ASCII. Only changed cells are redrawn, so the game also plays well over SSH.
 - **Sound.** Audio is mono 16-bit PCM at 22050 Hz, synthesized in Roc and
   streamed to the first player found: `pw-play` (PipeWire), `paplay`
-  (PulseAudio) or `aplay` (ALSA). With none of these, the game is silent.
+  (PulseAudio) or `aplay` (ALSA). The Nix package also brings its own
+  `paplay` as a last resort, so systems that run a PulseAudio server without
+  client tools (such as WSLg on Windows) still get sound. With no player and
+  no server, the game is silent.
   pinterm never changes system audio settings.
 - **Cleanup.** The terminal is restored after a normal quit, Ctrl-C, SIGTERM,
   a crash signal, or suspend.

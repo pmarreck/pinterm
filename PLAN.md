@@ -29,6 +29,8 @@
 - [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
 - [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)
 - [ ] Native smoke test in a real terminal; record observed results.
+- [x] Sound on NixOS-on-WSL: no player on PATH (WSLg PulseServer present). The Nix package now wraps pinterm with pulseaudio's bin appended to PATH; checks.player guards it. (2026-10-09 20:00 EDT)
+- [x] Bigger ball: two edge-justified half circles (U+1FBE9/U+1FBEB) when the ball spans about two columns, else a dot; "()" in ASCII. Font coverage outside ghostty-web and common Linux/Windows fonts unverified. (2026-10-09 20:00 EDT)
 - [x] README (install, controls, rules, compatibility, platforms, architecture, tests) and dirtree notes. (2026-10-07 10:15 EDT)
 - [ ] Improve the shared writing-roc skill only with reproduced/version-labeled new lessons and preserve unrelated edits (separate commit, skill-creator, shared-skill tests).
 - [ ] Report completion to the orchestrator via llmsend with exact tests, compiler pin, run commands, limitations and what needs human playtesting.

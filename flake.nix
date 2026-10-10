@@ -39,7 +39,7 @@
           pname = "pinterm";
           version = "0.1.0";
           inherit src;
-          nativeBuildInputs = buildTools ++ [ rocToolchain ];
+          nativeBuildInputs = buildTools ++ [ rocToolchain pkgs.makeWrapper ];
           buildPhase = ''
             export HOME=$TMPDIR
             export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
@@ -51,6 +51,10 @@
             install -m755 out/release/bin/pinterm $out/bin/pinterm
             install -m644 LICENSE $out/share/licenses/pinterm/LICENSE
             install -m644 ${rocToolchain.src}/LICENSE $out/share/licenses/pinterm/Roc-UPL
+            # Fallback audio player for systems without one on PATH (e.g. WSLg,
+            # which provides a PulseAudio server but no client tools). Appended,
+            # so a player the user already has still wins.
+            wrapProgram $out/bin/pinterm --suffix PATH : ${pkgs.pulseaudio}/bin
           '';
           meta = {
             description = "Top-down terminal pinball with synthesized sound";
@@ -85,6 +89,13 @@
 
         checks = pkgs.lib.optionalAttrs rocSupported {
           build = pinterm;
+          # The installed command can always find an audio player.
+          player = pkgs.runCommand "pinterm-player-check" { } ''
+            grep -qF "${pkgs.pulseaudio}/bin" ${pinterm}/bin/pinterm
+            test -x ${pkgs.pulseaudio}/bin/paplay
+            env -i ${pinterm}/bin/pinterm --about | grep -q pinterm
+            echo passed > $out
+          '';
           test = pkgs.stdenvNoCC.mkDerivation ({
             pname = "pinterm-test";
             version = "0.1.0";

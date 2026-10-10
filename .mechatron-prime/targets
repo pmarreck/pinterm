@@ -2,3 +2,4 @@
 packages.x86_64-linux.default
 checks.x86_64-linux.test
 packages.x86_64-linux.web
+checks.x86_64-linux.player
