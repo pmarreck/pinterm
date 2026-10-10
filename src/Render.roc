@@ -702,13 +702,7 @@ overlay_table = |cells, g, lay, opts| {
 	riding = g.riders.map(|r| Game.rider_pos(table, r))
 	positions = List.concat(List.concat(List.concat(g.balls.map(|b| b.pos), g.saucer_hold.map(|h| h.ball.pos)), riding), plunger_ball)
 	for pos in positions {
-		match cell_of(lay, pos) {
-			Ok((x, y)) => {
-				cp = if opts.ascii '@' else 0x25CF
-				$cells = set_cell($cells, lay.cols, x, y, { cp, fg: ink_ball.bitwise_or(bold_flag), bg: bg_at($cells, lay.cols, x, y) })
-			}
-			Err(_) => {}
-		}
+		$cells = draw_ball($cells, lay, opts, pos)
 	}
 	# Centre banner for attract / game over / pause / big messages.
 	switch_hint = "[ ] or swipe: change table"
@@ -1236,4 +1230,41 @@ gears_art = |p, base| {
 	small = gear(p, { x: 22.0, y: 46.0 }, 3.0, 6)
 	top = gear(p, { x: 38.0, y: 10.0 }, 3.5, 7)
 	if big or mid or small or top mix(base, 0xC8A04A, 0.3) else base
+}
+
+## Wide-ball threshold: once the ball's diameter covers this many columns it
+## is drawn as two half-circle glyphs instead of one dot, so it looks round
+## (terminal cells are about twice as tall as wide) and true to its size.
+wide_ball_cols : F64
+wide_ball_cols = 1.5
+
+## Draw one ball: a left/right half-circle pair straddling its centre when it
+## spans about two columns, else a dot. The pair is U+1FBE9/U+1FBEB (Unicode 16
+## edge-justified halves, which join into one circle; the older U+25D6/U+25D7
+## are centred in their cells and leave a gap), or "()" in ASCII.
+draw_ball : List(Render.Cell), Render.Layout, Render.Opts, { x : F64, y : F64 } -> List(Render.Cell)
+draw_ball = |cells, lay, opts, pos| {
+	cx = pos.x * lay.s
+	if 2.0 * Table.ball_radius * lay.s >= wide_ball_cols and cx >= 0.5 and pos.y >= 0.0 {
+		left = floor_u64(cx - 0.5)
+		y = floor_u64(pos.y * lay.s / 2.0)
+		(lcp, rcp) = if opts.ascii ('(', ')') else (0x1FBE9, 0x1FBEB)
+		put = |cs, col, cp| {
+			if col < lay.tw and y < lay.th {
+				x = lay.ox + col
+				set_cell(cs, lay.cols, x, lay.oy + y, { cp, fg: ink_ball.bitwise_or(bold_flag), bg: bg_at(cs, lay.cols, x, lay.oy + y) })
+			} else {
+				cs
+			}
+		}
+		put(put(cells, left, lcp), left + 1, rcp)
+	} else {
+		match cell_of(lay, pos) {
+			Ok((x, y)) => {
+				cp = if opts.ascii '@' else 0x25CF
+				set_cell(cells, lay.cols, x, y, { cp, fg: ink_ball.bitwise_or(bold_flag), bg: bg_at(cells, lay.cols, x, y) })
+			}
+			Err(_) => cells
+		}
+	}
 }

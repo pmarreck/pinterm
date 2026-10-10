@@ -45,7 +45,7 @@ color_opts = { color: 0, ascii: Bool.False, sound: Bool.False, help: Bool.False,
 expect {
 	lines = render_rows(100, 40, color_opts)
 	joined = Str.join_with(lines, "\n")
-	joined.contains("SCORE") and joined.contains("BALL 1/3") and joined.contains("●")
+	joined.contains("SCORE") and joined.contains("BALL 1/3") and joined.contains("🯩🯫")
 }
 
 # ASCII mode output is pure 7-bit ASCII and still shows the ball on the plunger.
@@ -54,7 +54,7 @@ expect {
 	opts = { ..color_opts, ascii: Bool.True, color: 3 }
 	cells = Render.compose(started, opts, lay, Render.static_pixels(lay, started.table), [])
 	bytes = Render.encode([], cells, 100, 3)
-	bytes.all(|b| b < 128) and cells.any(|c| c.cp == '@')
+	bytes.all(|b| b < 128) and cells.any(|c| c.cp == '(') and cells.any(|c| c.cp == ')')
 }
 
 # Monochrome mode never emits color escape codes.
@@ -228,3 +228,27 @@ expect {
 			and grave.contains("Magnet") and grave.contains("Ghost")
 				and clock.contains("Rotor") and clock.contains("G-E-A-R") and clock.contains("T-O-C-K")
 }
+
+# ---------- the ball ----------
+
+# The ball glyph cells (table column, code point) for a lone ball at world x.
+ball_cells : U64, U64, Render.Opts, F64 -> List((U64, U32))
+ball_cells = |cols, rows, opts, x| {
+	lay = Render.layout(cols, rows)
+	g = TestKit.in_play(started, x, 50.0, 0.0, 0.0)
+	cells = Render.compose(g, opts, lay, Render.static_pixels(lay, g.table), [])
+	glyphs = [0x25CF, 0x1FBE9, 0x1FBEB, '@', '(', ')']
+	cells.map_with_index(|c, i| (i, c.cp)).keep_if(|(i, cp)| i % cols >= lay.ox and i % cols < lay.ox + lay.tw and glyphs.contains(cp)).map(|(i, cp)| (i % cols - lay.ox, cp))
+}
+
+# When the ball spans about two columns it is drawn as two half circles
+# centred on it; when it would cover about one column it stays a single dot.
+expect {
+	big = ball_cells(100, 40, color_opts, 22.25)
+	big_shifted = ball_cells(100, 40, color_opts, 22.75)
+	small = ball_cells(80, 24, color_opts, 22.25)
+	big == [(21, 0x1FBE9), (22, 0x1FBEB)] and big_shifted == [(22, 0x1FBE9), (23, 0x1FBEB)] and small.len() == 1 and small.map(|(_, cp)| cp) == [0x25CF]
+}
+
+# ASCII mode draws the big ball as "()" and the small one as "@".
+expect ball_cells(100, 40, { ..color_opts, ascii: Bool.True, color: 3 }, 22.25) == [(21, '('), (22, ')')] and ball_cells(80, 24, { ..color_opts, ascii: Bool.True, color: 3 }, 22.25).map(|(_, cp)| cp) == ['@']
