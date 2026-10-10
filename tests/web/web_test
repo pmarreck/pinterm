@@ -47,8 +47,8 @@ for t in 1 2 3 4; do
 	check "wasm frame bytes identical to native on table $t" cmp -s "$dir/native-frames-t$t" "$dir/web-frames-t$t"
 done
 
-capture node --test "$root/tests/web/touch.test.mjs" "$root/tests/web/shake.test.mjs"
-check "touch and shake unit tests ($(grep -E "^. (pass|fail)" <<<"$out" | tr "\n" " "))" [ "$rc" -eq 0 ]
+capture node --test "$root/tests/web/touch.test.mjs" "$root/tests/web/shake.test.mjs" "$root/tests/web/glyphs.test.mjs"
+check "touch, shake and glyph unit tests ($(grep -E "^. (pass|fail)" <<<"$out" | tr "\n" " "))" [ "$rc" -eq 0 ]
 
 # Real browser, real key events.
 if command -v chromium >/dev/null; then
@@ -60,6 +60,7 @@ if command -v chromium >/dev/null; then
 	check "held plunger launched with measured power" grep -Eq '"launched":"f=[0-9]+ event launch power=([1-9][0-9]?)"' <<<"$out"
 	check "z key flipped the left flipper" grep -q '"flipped":"f=[0-9]* event flip side=left"' <<<"$out"
 	check "Web Audio available" grep -q '"audio":"function"' <<<"$out"
+	check "playfield glyphs drawn as shapes, never through the font" grep -Eq '"fillText":\{"shapes":0,"other":[1-9][0-9]*\}' <<<"$out"
 	check "no diagnostic overlay without ?diag" grep -q '"diag":null' <<<"$out"
 	check "no page errors" grep -q '"problems":\[\]' <<<"$out"
 	capture timeout 90 node "$root/tests/web/browser.mjs" "$site" touch

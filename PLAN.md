@@ -11,7 +11,7 @@
 - [x] Fast ./test: rebuild only when inputs change, parallel per-area Roc suites with compiler cache, parallel integration suites, real quit-key pty test (4.4 min -> 15.5 s when no rebuild is needed). (2026-10-07 09:45 EDT)
 - [x] Web build: Roc core as wasm32 + ghostty-web + Web Audio, Nix output .#web, differential and headless-browser tests, README screenshot. (2026-10-07 16:55 EDT)
 - [x] GitHub Pages via ./deploy-web (gh-pages branch, no Actions); live at https://pmarreck.github.io/pinterm/ and verified with a real-keyboard headless Chromium session. (2026-10-07 18:40 EDT)
-- [ ] Faint seams between cell rows in ghostty-web canvas rendering; investigate font size/metrics.
+- [x] Faint seams between cell rows in ghostty-web: fractional cell rectangles and font block glyphs; the web build now snaps rects to device pixels and draws blocks as shapes. (2026-10-10 16:50 EDT, pending a phone check)
 - [x] Touch controls: corner flippers, swipe-down plunger with distance power, no iOS keyboard (terminal input disarmed + touch layer), audio unlock on gesture end, portrait layout; unit + Chromium touch tests. (2026-10-07 19:45 EDT)
 - [x] Launch orbit no longer drains into the left outlane (left orbit exit guide; property test over powers and seeds). (2026-10-08 08:50 EDT)
 - [x] Motion nudge: device bump (7.5 m/s², 0.4 s cooldown) nudges via the same input as t; permission on gesture end; unit + Chromium tests. (2026-10-08 09:00 EDT)
@@ -31,6 +31,7 @@
 - [ ] Native smoke test in a real terminal; record observed results.
 - [x] Sound on NixOS-on-WSL: no player on PATH (WSLg PulseServer present). The Nix package now wraps pinterm with pulseaudio's bin appended to PATH; checks.player guards it. (2026-10-09 20:00 EDT)
 - [x] Bigger ball: two edge-justified half circles (U+1FBE9/U+1FBEB) when the ball spans about two columns, else a dot; "()" in ASCII. Font coverage outside ghostty-web and common Linux/Windows fonts unverified. (2026-10-09 20:00 EDT)
+- [ ] iOS Safari showed the ball halves as empty boxes (no font has U+1FBE9/U+1FBEB) and thin outlines around block cells (2026-10-10). Web build now draws the playfield glyphs as canvas shapes and snaps cell rectangles to device pixels; verify on the phone.
 - [x] README (install, controls, rules, compatibility, platforms, architecture, tests) and dirtree notes. (2026-10-07 10:15 EDT)
 - [ ] Improve the shared writing-roc skill only with reproduced/version-labeled new lessons and preserve unrelated edits (separate commit, skill-creator, shared-skill tests).
 - [ ] Report completion to the orchestrator via llmsend with exact tests, compiler pin, run commands, limitations and what needs human playtesting.

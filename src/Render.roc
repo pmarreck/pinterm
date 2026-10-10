@@ -1238,7 +1238,7 @@ gears_art = |p, base| {
 wide_ball_cols : F64
 wide_ball_cols = 1.5
 
-## Draw one ball: a left/right half-circle pair straddling its centre when it
+## Draw one ball: a left/right half-circle pair straddling its center when it
 ## spans about two columns, else a dot. The pair is U+1FBE9/U+1FBEB (Unicode 16
 ## edge-justified halves, which join into one circle; the older U+25D6/U+25D7
 ## are centred in their cells and leave a gap), or "()" in ASCII.

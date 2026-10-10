@@ -170,6 +170,17 @@ try {
 		const editable = await evalPage("document.querySelectorAll('[contenteditable]').length");
 		console.log(JSON.stringify({ overlayGone, switched, diag, started, launched, left, right, nudged, focus, editable, problems: problems() }));
 	} else if (command === "check") {
+		// Count what reaches the font: the playfield glyphs must be drawn as
+		// shapes (never fillText), while ordinary text still uses the font.
+		await send("Page.addScriptToEvaluateOnNewDocument", { source: `{
+			const shapes = new Set([0x2580, 0x2584, 0x2588, 0x25cf, 0x1fbe9, 0x1fbeb]);
+			window.__fillText = { shapes: 0, other: 0 };
+			const real = CanvasRenderingContext2D.prototype.fillText;
+			CanvasRenderingContext2D.prototype.fillText = function (s, ...rest) {
+				if (shapes.has(String(s).codePointAt(0))) window.__fillText.shapes++; else if (String(s).trim()) window.__fillText.other++;
+				return real.call(this, s, ...rest);
+			};
+		}` });
 		await send("Page.navigate", { url: `${base}?seed=7` });
 		await waitFor("window.pinterm !== undefined", 20000);
 		const overlayBefore = await evalPage("document.getElementById('start').hidden");
@@ -191,7 +202,8 @@ try {
 		await key("z", "KeyZ", "up");
 		const diag = await evalPage("document.getElementById('diag')?.textContent ?? null");
 		const audio = await evalPage("(() => { try { return typeof AudioContext } catch { return 'none' } })()");
-		console.log(JSON.stringify({ overlayBefore, switched, diag, started, launched, flipped, audio, problems: problems() }));
+		const fillText = await evalPage("window.__fillText");
+		console.log(JSON.stringify({ overlayBefore, switched, diag, started, launched, flipped, audio, fillText, problems: problems() }));
 	}
 } finally {
 	b.close();

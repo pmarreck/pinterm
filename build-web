@@ -43,10 +43,10 @@ fi
 
 command rm -rf -- "$site"
 mkdir -p "$site/vendor" "$site/licenses"
-install -m644 "$root/web/site/index.html" "$root/web/site/app.js" "$root/web/site/pinterm-core.js" "$root/web/site/touch-controls.js" "$root/web/site/shake.js" "$site/"
+install -m644 "$root/web/site/index.html" "$root/web/site/app.js" "$root/web/site/pinterm-core.js" "$root/web/site/touch-controls.js" "$root/web/site/shake.js" "$root/web/site/glyphs.js" "$site/"
 install -m644 "$work/pinterm.wasm" "$site/pinterm.wasm"
 # Content-addressed build id: changes whenever a script or the core changes.
-build_id="$(cd "$site" && cat app.js pinterm-core.js touch-controls.js shake.js pinterm.wasm | sha256sum | cut -c1-12)"
+build_id="$(cd "$site" && cat app.js pinterm-core.js touch-controls.js shake.js glyphs.js pinterm.wasm | sha256sum | cut -c1-12)"
 printf '%s\n' "$build_id" >"$site/build-id.txt"
 sed -i "s|<meta name=\"pinterm-build\" content=\"dev\">|<meta name=\"pinterm-build\" content=\"$build_id\">|" "$site/index.html"
 cp "$PINTERM_GHOSTTY_WEB"/dist/*.js "$site/vendor/"
