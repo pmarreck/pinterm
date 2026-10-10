@@ -5,6 +5,7 @@ import { Ghostty, Terminal, FitAddon } from "./vendor/ghostty-web.js";
 import { loadGame, keyEventBytes, SAMPLE_RATE, FLAG_RESIZED } from "./pinterm-core.js";
 import { createTouchControls } from "./touch-controls.js";
 import { createShakeDetector } from "./shake.js";
+import { drawCellGlyph, GLYPHS, snapRect } from "./glyphs.js";
 
 const params = new URLSearchParams(location.search);
 const demo = params.has("demo");
@@ -36,6 +37,23 @@ const term = new Terminal({
 const fit = new FitAddon();
 term.loadAddon(fit);
 term.open(container);
+// Draw the playfield glyphs as shapes rather than font text, and snap every
+// filled rectangle (cell backgrounds, row clears) to device pixels so cells
+// tile without seams (see glyphs.js). While ghostty-web renders one of those
+// glyph cells its fillText is replaced by the procedural drawing, so colors,
+// faint and selection handling still come from ghostty-web itself.
+{
+	const renderer = term.renderer, ctx = renderer.ctx;
+	const fillRect = ctx.fillRect, fillText = ctx.fillText;
+	ctx.fillRect = (x, y, w, h) => fillRect.apply(ctx, snapRect(x, y, w, h, renderer.devicePixelRatio));
+	const renderCellText = renderer.renderCellText;
+	const custom = new Set(GLYPHS);
+	renderer.renderCellText = function (cell, col, row) {
+		if (!custom.has(cell.codepoint) || cell.grapheme_len > 0) return renderCellText.call(this, cell, col, row);
+		ctx.fillText = (...args) => drawCellGlyph(ctx, cell.codepoint, col, row, this.metrics, this.devicePixelRatio) || fillText.apply(ctx, args);
+		try { return renderCellText.call(this, cell, col, row); } finally { ctx.fillText = fillText; }
+	};
+}
 fit.fit();
 // Same terminal setup the native host sends: hide the cursor, no autowrap.
 term.write("\x1b[?25l\x1b[?7l");
