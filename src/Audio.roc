@@ -121,6 +121,7 @@ voices_for = |fx| {
 			[tone(noise_wave, 300.0, 3000.0 + 300.0 * c, 0.35, 0.12, 0.0), tone(triangle, 330.0 + 55.0 * c, 880.0 + 110.0 * c, 0.3, 0.3, 0.0)]
 		}
 		TableSwitch => [tone(saw, 180.0, 720.0, 0.3, 0.16, 0.0), tone(noise_wave, 4000.0, 800.0, 0.3, 0.08, 0.0)]
+		ScoresChanged => arp(square, [523.0, 659.0, 784.0, 659.0, 784.0, 1047.0], 0.09, 0.22, 0.0)
 		Wall(impact) => if impact > 45.0 [tone(noise_wave, 900.0, 300.0, 0.025, Physics.clamp(impact / 400.0, 0.0, 0.22), 0.0)] else []
 	}
 }

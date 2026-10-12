@@ -1,6 +1,7 @@
 import Physics
 import Table
 import Game
+import Scores
 
 ## Pure terminal renderer. Rasterizes the table into half-cell pixels (two per
 ## character cell via upper-half-block glyphs), overlays the ball, text and a
@@ -710,9 +711,11 @@ overlay_table = |cells, g, lay, opts| {
 		if sliding {
 			[]
 		} else if g.mode == Attract {
-			[table.name, table.blurb, "", "SPACE to launch", switch_hint, "h for help"]
+			[table.name, table.blurb, "", "SPACE to launch", switch_hint, "h for help"].concat(score_lines(g))
+		} else if g.mode == Initials {
+			initials_lines(g)
 		} else if g.mode == GameOver {
-			["GAME OVER", "SCORE ${Render.commas(g.score)}", "", if g.time >= g.mode_until "SPACE / n: new game" else "", if g.time >= g.mode_until switch_hint else ""]
+			["GAME OVER", "SCORE ${Render.commas(g.score)}", "", if g.time >= g.mode_until "SPACE / n: new game" else "", if g.time >= g.mode_until switch_hint else ""].concat(score_lines(g))
 		} else if g.paused {
 			["PAUSED", "p to resume"]
 		} else if g.mode == BallOver {
@@ -725,10 +728,10 @@ overlay_table = |cells, g, lay, opts| {
 	var $row = 0
 	for line in banner {
 		shown = truncate(line, lay.tw)
-		width = Str.count_utf8_bytes(shown)
+		width = codepoints(shown).len()
 		x = if center_x > width / 2 center_x - width / 2 else 0
 		fg = if $row == 0 (if blink(g.time, 1.5) 0xFF4FD8.U32 else pal.wall_top) else 0xFFF2A8.U32
-		if !shown.is_empty() {
+		if !shown.is_empty() and center_y + $row < lay.oy + lay.th {
 			$cells = put_text($cells, lay.cols, x, center_y + $row, shown, fg.bitwise_or(bold_flag), 0x100820)
 		}
 		$row = $row + 1
@@ -1267,5 +1270,38 @@ draw_ball = |cells, lay, opts, pos| {
 			}
 			Err(_) => cells
 		}
+	}
+}
+
+## Banner for high-score initials entry: the letters spaced apart (a blank
+## shows as a middle dot, since space and underscore are both valid), with a
+## caret under the one being edited; the caret line is padded to the letters'
+## width so both center on the same column.
+initials_lines : Game.State -> List(Str)
+initials_lines = |g| {
+	e = g.initials
+	letters = e.chars.map(|i| if i == 0 "·" else Str.from_utf8([Scores.charset.get(i) ?? '?']) ?? "?")
+	width = e.chars.len() * 3 - 2
+	caret = Str.concat(Str.concat(Str.repeat(" ", e.cursor * 3), "^"), Str.repeat(" ", width - e.cursor * 3 - 1))
+	["NEW HIGH SCORE", "SCORE ${Render.commas(g.score)}", "", Str.join_with(letters, "  "), caret, "", "left flip: letter", "right flip: next"]
+}
+
+## The current table's top scores, ranked, scores right-aligned.
+score_lines : Game.State -> List(Str)
+score_lines = |g| {
+	book = g.books.get(g.table_index) ?? []
+	if book.is_empty() {
+		[]
+	} else {
+		shown = book.map(|x| Render.commas(x.score))
+		w = shown.fold(0, |m, s| if Str.count_utf8_bytes(s) > m Str.count_utf8_bytes(s) else m)
+		var $out = ["", "HIGH SCORES"]
+		var $i = 0
+		for x in book {
+			s = shown.get($i) ?? ""
+			$out = $out.append("${($i + 1).to_str()} ${x.initials}  ${Str.repeat(" ", w - Str.count_utf8_bytes(s))}${s}")
+			$i = $i + 1
+		}
+		$out
 	}
 }

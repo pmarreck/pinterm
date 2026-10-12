@@ -252,3 +252,58 @@ expect {
 
 # ASCII mode draws the big ball as "()" and the small one as "@".
 expect ball_cells(100, 40, { ..color_opts, ascii: Bool.True, color: 3 }, 22.25) == [(21, '('), (22, ')')] and ball_cells(80, 24, { ..color_opts, ascii: Bool.True, color: 3 }, 22.25).map(|(_, cp)| cp) == ['@']
+
+# ---------- high scores ----------
+
+screen : Game.State, U64, U64 -> List(Str)
+screen = |g, cols, rows| {
+	lay = Render.layout(cols, rows)
+	cells = Render.compose(g, color_opts, lay, Render.static_pixels(lay, g.table), [])
+	var $out = []
+	var $r = 0
+	while $r < rows {
+		$out = $out.append(Render.row_text(cells, cols, $r))
+		$r = $r + 1
+	}
+	$out
+}
+
+entering : Game.State
+entering = { ..started, mode: Initials, score: 1734, initials: { chars: [1, 0, 0], cursor: 1, last_input: 0.0, unchanged: 0 } }
+
+## Column (in code points) where `needle` starts in `row`, if present.
+column_of : Str, Str -> Try(U64, [None])
+column_of = |row, needle| {
+	cps = Str.to_utf8(row)
+	n = Str.to_utf8(needle)
+	var $i = 0
+	var $col = 0
+	while $i + n.len() <= cps.len() {
+		if cps.sublist({ start: $i, len: n.len() }) == n {
+			return Ok($col)
+		}
+		b = cps.get($i) ?? 0
+		if b < 0x80 or b >= 0xC0 {
+			$col = $col + 1
+		}
+		$i = $i + 1
+	}
+	Err(None)
+}
+
+# Initials entry shows the prompt, the score, the letters (blanks as dots)
+# and a caret under the letter being edited.
+expect {
+	rows = screen(entering, 100, 40)
+	letters_at = rows.find_first_index(|r| r.contains("A  ·  ·")) ?? 0
+	letters_col = column_of(rows.get(letters_at) ?? "", "A  ·  ·") ?? 0
+	caret_col = column_of(rows.get(letters_at + 1) ?? "", "^") ?? 0
+	rows.any(|r| r.contains("NEW HIGH SCORE")) and rows.any(|r| r.contains("1,734")) and letters_at > 0 and caret_col == letters_col + 3
+}
+
+# Attract mode lists the table's top scores under the hints.
+expect {
+	g = Game.with_books(Game.new(1), [[{ initials: "ABC", score: 9000 }, { initials: "P M", score: 120 }], [], [], [], []])
+	rows = screen(g, 100, 40)
+	rows.any(|r| r.contains("HIGH SCORES")) and rows.any(|r| r.contains("1 ABC") and r.contains("9,000")) and rows.any(|r| r.contains("2 P M") and r.contains("120"))
+}

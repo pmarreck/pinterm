@@ -27,7 +27,7 @@ expect {
 
 # Every gameplay effect makes audible, bounded sound that then decays to silence.
 expect {
-	effects = [Bumper(3), Sling, Flip, Launch(1.0), Drain, Rollover, LanesDone, Target, TargetsDone, Saucer, Multiball, Jackpot, Saved, Warn, Tilt, Skill, GameOver, Begin, Wall(120.0)]
+	effects = [Bumper(3), Sling, Flip, Launch(1.0), Drain, Rollover, LanesDone, Target, TargetsDone, Saucer, Multiball, Jackpot, Saved, Warn, Tilt, Skill, GameOver, Begin, ScoresChanged, Wall(120.0)]
 	effects.all(
 		|fx| {
 			(m1, s1) = Audio.render(Audio.trigger(Audio.new(22050), fx), 0.25)

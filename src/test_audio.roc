@@ -5,7 +5,7 @@ main! = |_args| Ok({})
 
 themes = [Arcade, Space, Steam, Haunt, Clock]
 
-all_fx = [Bumper(1), Sling, Flip, Launch(0.5), Drain, Rollover, LanesDone, Target, TargetsDone, Saucer, Multiball, Jackpot, Saved, Warn, Tilt, Skill, GameOver, Begin, Drop, DropsDone, Ramp(2), TableSwitch, Wall(120.0)]
+all_fx = [Bumper(1), Sling, Flip, Launch(0.5), Drain, Rollover, LanesDone, Target, TargetsDone, Saucer, Multiball, Jackpot, Saved, Warn, Tilt, Skill, GameOver, Begin, Drop, DropsDone, Ramp(2), TableSwitch, ScoresChanged, Wall(120.0)]
 
 pcm = |theme, fx| Audio.render(Audio.trigger_in(Audio.new(22050), theme, fx), 0.6).1
 

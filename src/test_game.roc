@@ -115,12 +115,14 @@ expect {
 	after.mode == Playing and after.ball_number == 1 and after.on_plunger
 }
 
-# Draining the third ball ends the game; Start begins a fresh game.
+# Draining the third ball ends the game; Start begins a fresh game. (The
+# score misses this table's full top-five list, so no initials are asked.)
 expect {
-	last = { ..in_play(started, 22.0, 80.0, 0.0, 50.0), ball_number: 3, score: 1234 }
+	book = [9000, 8000, 7000, 6000, 5000].map(|score| { initials: "AAA", score })
+	last = { ..in_play(Game.with_books(started, [book]), 22.0, 80.0, 0.0, 50.0), ball_number: 3, score: 1234 }
 	over = run_frames(last, 240)
 	again = press(run_frames(over, 120), Start)
-	over.mode == GameOver and over.high >= 1234 and again.mode == Playing and again.score == 0 and again.ball_number == 1
+	over.mode == GameOver and over.high == 9000 and again.mode == Playing and again.score == 0 and again.ball_number == 1
 }
 
 # Flipper press raises the flipper; baseline timeout lowers it without a release.
@@ -314,7 +316,8 @@ expect {
 
 # Each table keeps its own high score, and a game starts on the selected table.
 expect {
-	g = press({ ..attract, highs: [100, 200, 300, 400] }, NextTable)
+	one = |score| [{ initials: "AAA", score }]
+	g = press(Game.with_books(attract, [one(100), one(200), one(300), one(400)]), NextTable)
 	playing = press(g, Start)
 	g.high == 200 and playing.table_index == 1 and playing.table.name == (Table.at(1)).name and playing.high == 200
 }

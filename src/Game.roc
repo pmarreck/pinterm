@@ -1,4 +1,5 @@
 import Physics
+import Scores
 import Table
 
 ## Pure pinball game state machine: fixed-timestep ball physics against the
@@ -9,7 +10,7 @@ import Table
 Game :: [].{
 	Key : [LeftFlip, RightFlip, Plunger, Start, Nudge, Pause, New, PrevTable, NextTable]
 	Event : [Press(Key), Release(Key)]
-	Mode : [Attract, Playing, BallOver, GameOver]
+	Mode : [Attract, Playing, BallOver, Initials, GameOver]
 	Ball : { pos : V, vel : V, r : F64 }
 	Flipper : { angle : F64, omega : F64, down : Bool, until : F64 }
 	Rider : { ramp : U64, s : F64 }
@@ -38,8 +39,13 @@ Game :: [].{
 		Begin,
 		Wall(F64),
 		TableSwitch,
+		ScoresChanged,
 	]
 	Popup : { pos : V, text : Str, until : F64 }
+
+	## High-score initials being entered: charset indices, cursor position,
+	## time of the last flipper press, and cursor moves since the last change.
+	Entry : { chars : List(U64), cursor : U64, last_input : F64, unchanged : U64 }
 	State : {
 		mode : Mode,
 		time : F64,
@@ -49,7 +55,8 @@ Game :: [].{
 		table : Table.Layout,
 		score : I64,
 		high : I64,
-		highs : List(I64),
+		books : List(List(Scores.Entry)),
+		initials : Entry,
 		ball_number : I64,
 		balls : List(Ball),
 		on_plunger : Bool,
@@ -136,6 +143,14 @@ Game :: [].{
 	new : U64 -> State
 	new = |seed| Game.new_on(seed, 0)
 
+	## Install saved high-score lists (one per table, padded or trimmed to the
+	## table count) and show the current table's best.
+	with_books : State, List(List(Scores.Entry)) -> State
+	with_books = |g, loaded| {
+		books = List.repeat([], Table.count).map_with_index(|empty, i| loaded.get(i) ?? empty)
+		{ ..g, books, high: top_score(books, g.table_index) }
+	}
+
 	## A fresh attract-mode game on table `index`.
 	new_on : U64, U64 -> State
 	new_on = |seed, index| {
@@ -149,7 +164,8 @@ Game :: [].{
 			table,
 			score: 0,
 			high: 0,
-			highs: List.repeat(0, Table.count),
+			books: List.repeat([], Table.count),
+			initials: blank_entry(0.0),
 			ball_number: 0,
 			balls: [],
 			on_plunger: Bool.False,
@@ -235,6 +251,7 @@ Game :: [].{
 					moved = settle_flippers(g3, dt)
 					if moved.time >= moved.mode_until next_ball(moved) else moved
 				}
+				Initials => entry_timeout(settle_flippers(g3, dt))
 				Attract => settle_flippers(g3, dt)
 				GameOver => settle_flippers(g3, dt)
 			}
@@ -505,7 +522,10 @@ between_games : State -> Bool
 between_games = |g| g.mode == Attract or g.mode == GameOver
 
 press : State, Game.Key -> State
-press = |g, key| {
+press = |g, key| if g.mode == Initials entry_press(g, key) else play_press(g, key)
+
+play_press : State, Game.Key -> State
+play_press = |g, key| {
 	match key {
 		Pause => if g.mode == Playing { ..g, paused: !g.paused } else g
 		New => start_game(g)
@@ -617,8 +637,8 @@ switch_table = |g, index, dir| {
 		rng: g.rng,
 		time: g.time,
 		frame: g.frame,
-		highs: g.highs,
-		high: g.highs.get(i) ?? 0,
+		books: g.books,
+		high: top_score(g.books, i),
 		exact_keys: g.exact_keys,
 		transition_from: g.table_index,
 		transition_dir: dir,
@@ -632,7 +652,7 @@ switch_table = |g, index, dir| {
 start_game : State -> State
 start_game = |g| {
 	fresh = { ..Game.new_on(0, g.table_index), frame: g.frame }
-	(lane, g1) = rand_index({ ..fresh, high: g.high, highs: g.highs, exact_keys: g.exact_keys, rng: g.rng }, fresh.table.lanes.len())
+	(lane, g1) = rand_index({ ..fresh, high: g.high, books: g.books, exact_keys: g.exact_keys, rng: g.rng }, fresh.table.lanes.len())
 	g2 = {
 		..g1,
 		mode: Playing,
@@ -650,10 +670,13 @@ start_game = |g| {
 next_ball : State -> State
 next_ball = |g| {
 	if g.ball_number >= Game.balls_per_game {
-		high = if g.score > g.high g.score else g.high
-		highs = set_at(g.highs, g.table_index, high)
-		over = { ..g, mode: GameOver, high, highs, mode_until: g.time + 1.5, message: "GAME OVER", message_until: 1.0e12 }
-		note(emit(over, GameOver), "event game_over score=${g.score.to_str()} high=${high.to_str()}")
+		book = g.books.get(g.table_index) ?? []
+		logged = |s| note(emit(s, GameOver), "event game_over score=${g.score.to_str()} high=${g.high.to_str()}")
+		if Scores.qualifies(book, g.score) {
+			logged({ ..g, mode: Initials, initials: blank_entry(g.time), message: "ENTER INITIALS", message_until: 1.0e12 })
+		} else {
+			logged({ ..g, mode: GameOver, mode_until: g.time + 1.5, message: "GAME OVER", message_until: 1.0e12 })
+		}
 	} else {
 		n = g.ball_number + 1
 		(lane, g1) = rand_index(g, g.table.lanes.len())
@@ -1336,4 +1359,55 @@ add_car = |g| {
 			note(announce({ ..g, cars }, "CAR ${cars.to_str()} ADDED", 1.5), "event car cars=${cars.to_str()}")
 		}
 	}
+}
+
+# ---------- high-score initials ----------
+
+## Seconds without a flipper press before the initials lock in.
+entry_idle_limit : F64
+entry_idle_limit = 10.0
+
+## Cursor moves in a row without a letter change that lock the initials in.
+entry_skip_limit : U64
+entry_skip_limit = 3
+
+entry_len : U64
+entry_len = 3
+
+blank_entry : F64 -> Entry
+blank_entry = |now| { chars: List.repeat(0, entry_len), cursor: 0, last_input: now, unchanged: 0 }
+
+top_score : List(List(Scores.Entry)), U64 -> I64
+top_score = |books, i| ((books.get(i) ?? []).first() ?? { initials: "", score: 0 }).score
+
+## Arcade-style entry: the left flipper cycles the letter under the cursor
+## through the charset, the right flipper moves the cursor (wrapping). New
+## locks the entry in before starting a game; other keys are ignored.
+entry_press : State, Game.Key -> State
+entry_press = |g, key| {
+	e = g.initials
+	match key {
+		LeftFlip => {
+			c = ((e.chars.get(e.cursor) ?? 0) + 1) % Scores.charset.len()
+			{ ..g, initials: { ..e, chars: e.chars.set(e.cursor, c) ?? e.chars, last_input: g.time, unchanged: 0 } }
+		}
+		RightFlip => {
+			moved = { ..e, cursor: (e.cursor + 1) % entry_len, last_input: g.time, unchanged: e.unchanged + 1 }
+			if moved.unchanged >= entry_skip_limit lock_entry({ ..g, initials: moved }) else { ..g, initials: moved }
+		}
+		New => start_game(lock_entry(g))
+		_ => g
+	}
+}
+
+entry_timeout : State -> State
+entry_timeout = |g| if g.time - g.initials.last_input >= entry_idle_limit lock_entry(g) else g
+
+## Record the entry in the current table's list, then show game over.
+lock_entry : State -> State
+lock_entry = |g| {
+	text = Str.from_utf8(g.initials.chars.map(|i| Scores.charset.get(i) ?? ' ')) ?? "   "
+	books = set_at(g.books, g.table_index, Scores.insert(g.books.get(g.table_index) ?? [], { initials: text, score: g.score }))
+	over = { ..g, mode: GameOver, books, high: top_score(books, g.table_index), mode_until: g.time + 1.5, message: "GAME OVER", message_until: 1.0e12 }
+	note(emit(over, ScoresChanged), "event initials table=${g.table_index.to_str()} text=\"${text}\" score=${g.score.to_str()}")
 }

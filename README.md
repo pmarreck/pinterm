@@ -96,6 +96,13 @@ jackpot. Scoring several hits within about 1.5 seconds builds a combo. A
 blinking top lane at launch is a skill shot. Each ball gets one ball save
 shortly after launch. End-of-ball bonus counts your hits, unless you tilted.
 
+Each table keeps its own top-five score list, shown between games. A score
+that makes the list asks for three initials, arcade style: the left flipper
+cycles the letter under the cursor (space, A-Z, 0-9, then _ - * ! ?) and the
+right flipper moves to the next letter, wrapping after the third. The entry
+locks in after 10 seconds without a flipper press, or after three cursor moves
+in a row without changing a letter.
+
 ### Options
 
 ```text
