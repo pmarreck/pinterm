@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# tools/roc-glue gives every `roc glue` run a private ROC_CACHE_DIR. roc glue
+# rewrites the compiler's built-in glue platform inside its cache directory on
+# each run, without an atomic write, so the native and web builds running in
+# parallel with one shared cache could read each other's half-written files
+# (seen in CI as "declares platform glue as its platform, but that package
+# does not have a platform header"). A stub compiler records the cache each run
+# was given, so this checks the isolation directly instead of hoping to lose a
+# timing race.
+set -u
+SUITE=glue
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-glue.XXXXXX")"
+
+# Stub compiler: records its cache directory and arguments, checks that the
+# cache exists, and exits with $STUB_STATUS.
+mkdir -p "$dir/bin" "$dir/plat"
+# (absolute shebang: the Nix build sandbox has no /usr/bin/env)
+{
+	printf '#!%s\n' "$(command -v bash)"
+	cat <<'EOF'
+[ -d "$ROC_CACHE_DIR" ] || { echo "cache missing" >&2; exit 9; }
+printf '%s\n' "$ROC_CACHE_DIR" >"$STUB_LOG.$$"
+printf '%s\n' "$@" >"$STUB_LOG.$$.args"
+exit "${STUB_STATUS:-0}"
+EOF
+} >"$dir/bin/roc"
+chmod +x "$dir/bin/roc"
+export PINTERM_ROC="$dir/bin/roc" PINTERM_ROC_SOURCE_DIR="$dir/roc-src" STUB_LOG="$dir/log"
+export ROC_CACHE_DIR="$dir/shared-cache"
+mkdir -p "$ROC_CACHE_DIR"
+
+pids=()
+for _ in 1 2 3 4 5 6 7 8; do
+	"$root/tools/roc-glue" "$dir/plat" &
+	pids+=($!)
+done
+failed=0
+for p in "${pids[@]}"; do wait "$p" || failed=$((failed + 1)); done
+check "concurrent glue runs all succeed" [ "$failed" -eq 0 ]
+caches="$(for f in "$dir"/log.*; do case "$f" in *.args) ;; *) cat "$f" ;; esac; done 2>/dev/null)"
+check "each of the 8 runs recorded a cache" [ "$(printf '%s\n' "$caches" | grep -c .)" -eq 8 ]
+check "no two runs share a cache" [ "$(printf '%s\n' "$caches" | sort -u | grep -c .)" -eq 8 ]
+check "no run uses the inherited cache" [ -z "$(printf '%s\n' "$caches" | grep -Fx "$ROC_CACHE_DIR")" ]
+leftover=0
+while read -r c; do [ -e "$c" ] && leftover=$((leftover + 1)); done <<<"$caches"
+check "private caches are removed afterwards" [ "$leftover" -eq 0 ]
+set -- "$dir"/log.*.args
+args="$(cat "$1" 2>/dev/null)"
+check "runs glue with the C glue spec on the platform" [ "$args" = "$(printf '%s\n' glue "$dir/roc-src/src/glue/src/CGlue.roc" "$dir/plat" "$dir/plat/main.roc" --no-cache)" ]
+
+capture env STUB_STATUS=3 "$root/tools/roc-glue" "$dir/plat"
+check "a glue failure is reported" [ "$rc" -eq 3 ]
+
+# Both build scripts generate glue only through the helper.
+for script in build build-web; do
+	check "$script calls tools/roc-glue" grep -q 'tools/roc-glue' "$root/$script"
+	check "$script does not run roc glue directly" bash -c '! grep -Eq "PINTERM_ROC\"? glue" "$1"' _ "$root/$script"
+done
+
+command rm -rf -- "$dir"
+finish

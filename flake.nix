@@ -109,7 +109,7 @@
               export HOME=$TMPDIR
               export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
               export ROC_CACHE_DIR=$TMPDIR/roc-cache
-              patchShebangs ./build ./build-web ./deploy-web ./test tests bin
+              patchShebangs ./build ./build-web ./deploy-web ./test tests tools bin
               ./test
             '';
             installPhase = "mkdir -p $out && echo passed > $out/result";

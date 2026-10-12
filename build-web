@@ -31,8 +31,7 @@ if wasm_stale; then
 	cp "$root"/web/platform/*.roc "$root/web/platform/host_web.c" "$work/web/platform/"
 
 	"$PINTERM_ROC" check "$work/src/web_main.roc" --no-cache --jobs="$jobs"
-	"$PINTERM_ROC" glue "$PINTERM_ROC_SOURCE_DIR/src/glue/src/CGlue.roc" \
-		"$work/web/platform" "$work/web/platform/main.roc" --no-cache >/dev/null
+	bash "$root/tools/roc-glue" "$work/web/platform"
 	zig cc -target wasm32-freestanding -O2 -std=c11 -Wall -Wextra -Werror \
 		-c "$work/web/platform/host_web.c" -o "$work/web/platform/targets/wasm32/host.wasm"
 	"$PINTERM_ROC" build "$work/src/web_main.roc" --target=wasm32 --opt=speed \

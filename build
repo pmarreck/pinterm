@@ -41,8 +41,7 @@ cp "$root"/src/*.roc "$work/src/"
 "$PINTERM_ROC" check "$work/src/main.roc" --no-cache --jobs="$jobs"
 [ "$check_only" = 1 ] && exit 0
 
-"$PINTERM_ROC" glue "$PINTERM_ROC_SOURCE_DIR/src/glue/src/CGlue.roc" \
-	"$work/platform" "$work/platform/main.roc" --no-cache >/dev/null
+bash "$root/tools/roc-glue" "$work/platform"
 
 if [ "$profile" = debug ]; then
 	copt="-O0 -g -DPINTERM_DEBUG_BUILD=1"; ropt="--opt=dev"

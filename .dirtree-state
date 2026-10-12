@@ -45,6 +45,7 @@ annotate=[
 	src/web_main.roc = Browser app entry: Model = Loop.State; init/frame wrap the same Loop.frame
 	test = Complete test entry: parallel Roc suites, fmt, build-if-stale, parallel CLI/integration suites
 	tests/cli/cli_test = CLI option and error-path checks
+	tests/cli/glue_test = Checks tools/roc-glue isolates each roc glue run's cache (stub compiler) and that build scripts use it
 	tests/cli/launcher_test = bin/pinterm launcher checks
 	tests/cli/scores_test = Score file location precedence, save after initials, reload, PINTERM_SCORES, damaged-file quarantine
 	tests/deploy/deploy_test = deploy-web publishing against a throwaway repo: tree, no-op rerun, parent chain, untouched checkout
@@ -60,6 +61,7 @@ annotate=[
 	tests/web/shake.test.mjs = Node unit tests for shake detection (noise, bumps, cooldown, gravity, tilt)
 	tests/web/touch.test.mjs = Node unit tests for touch controls (zone classifier grid, strokes, power timing, cancelAll)
 	tests/web/web_test = Web suite: site contents, native-vs-wasm differential replays, browser session
+	tools/roc-glue = Runs roc glue for a platform dir with a private ROC_CACHE_DIR (roc rewrites its built-in glue platform non-atomically in the cache)
 	web/platform/host_web.c = Freestanding wasm host: free-list allocator, input buffer, frame output pointers
 	web/platform/main.roc = Roc web platform: boxed model init/frame, release, list allocators, wasm exports
 	web/site/app.js = Page shell: ghostty-web terminal, kitty-style key bytes, rAF loop, Web Audio, demo mode

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Generate the C glue header for a Roc platform: roc-glue PLATFORM_DIR
+# (reads PLATFORM_DIR/main.roc, writes into PLATFORM_DIR).
+#
+# roc glue rewrites the compiler's built-in glue platform inside ROC_CACHE_DIR
+# on every run, without an atomic write. Two runs sharing a cache, such as the
+# native and web builds in parallel, can read each other's half-written files,
+# so each run gets a private cache that is removed afterwards.
+set -u
+dir="${1:?usage: roc-glue PLATFORM_DIR}"
+cache="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-roc-glue.XXXXXX")" || exit 1
+ROC_CACHE_DIR="$cache" "${PINTERM_ROC:?}" glue "${PINTERM_ROC_SOURCE_DIR:?}/src/glue/src/CGlue.roc" \
+	"$dir" "$dir/main.roc" --no-cache >/dev/null
+status=$?
+command rm -rf -- "$cache"
+exit "$status"
