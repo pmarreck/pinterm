@@ -1,12 +1,14 @@
 // Procedural cell glyphs. ghostty-web draws every cell with fillText, so a
 // glyph's look depends on the device's fonts: iOS has no font with the
-// Unicode 16 ball halves (they show as empty boxes), and font block glyphs
+// Unicode 16 ball characters (they show as empty boxes), and font block glyphs
 // rarely fill a cell exactly (thin seams between pixel rows). The few glyphs
 // the game's playfield is built from are drawn here as canvas shapes instead,
 // with edges snapped to device pixels so neighboring cells tile exactly.
 
 const UPPER_HALF = 0x2580, LOWER_HALF = 0x2584, FULL_BLOCK = 0x2588;
-const BALL_DOT = 0x25cf, BALL_LEFT = 0x1fbe9, BALL_RIGHT = 0x1fbeb;
+// The two-cell ball is sent as the octants U+1CDAA/U+1CD6E, a 4x4 block octagon
+// that terminals draw without a font; here it is drawn as a smooth disc.
+const BALL_DOT = 0x25cf, BALL_LEFT = 0x1cdaa, BALL_RIGHT = 0x1cd6e;
 export const GLYPHS = [UPPER_HALF, LOWER_HALF, FULL_BLOCK, BALL_DOT, BALL_LEFT, BALL_RIGHT];
 
 // Ball radius as a share of the cell height; the two-cell ball is capped at
