@@ -7,7 +7,7 @@
     roc-upstream.url = "github:roc-lang/roc/1a4df199210309bbb6befb1322f7435361bd01e1?dir=src";
     # Printable-binary: its Roc codec is copied into src/ (checked identical to
     # this pin by tests) and its CLI is the independent decoder in the tests.
-    printable-binary.url = "github:pmarreck/printable-binary/8942124bda71cd06c39bda6db7c669953dd40452";
+    printable-binary.url = "github:pmarreck/printable-binary/cdefa95e4590fa016967e0e6ccb3b96c19c44c7e";
   };
 
   outputs = { self, nixpkgs, flake-utils, roc-upstream, printable-binary }:

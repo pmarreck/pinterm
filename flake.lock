@@ -244,17 +244,17 @@
         "zig-overlay": "zig-overlay"
       },
       "locked": {
-        "lastModified": 1791775054,
-        "narHash": "sha256-pYfVICHx9F1uikWCob/yiLqCAf2kcXPS/1LLBPXsfjU=",
+        "lastModified": 1791825923,
+        "narHash": "sha256-oYMEwcN0+S4DeAAySJNB3SiDITCiKmQWzO2HOGGvZLM=",
         "owner": "pmarreck",
         "repo": "printable-binary",
-        "rev": "8942124bda71cd06c39bda6db7c669953dd40452",
+        "rev": "cdefa95e4590fa016967e0e6ccb3b96c19c44c7e",
         "type": "github"
       },
       "original": {
         "owner": "pmarreck",
         "repo": "printable-binary",
-        "rev": "8942124bda71cd06c39bda6db7c669953dd40452",
+        "rev": "cdefa95e4590fa016967e0e6ccb3b96c19c44c7e",
         "type": "github"
       }
     },
@@ -327,17 +327,17 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1791170757,
-        "narHash": "sha256-DKLB58fXpIwzc5xEguqsB0IIKPn8L/dkX9z1k+imi+8=",
+        "lastModified": 1791158683,
+        "narHash": "sha256-pYJDQVoMjBuCNzkrJid7G6JUNj//1kaMaVgrE00JAmQ=",
         "owner": "pmarreck",
-        "repo": "roc",
-        "rev": "fbc131fe353ccbad9ca2f77ab652b6f75d5180fe",
+        "repo": "roc_luajit",
+        "rev": "cfd57c1f319df2782e4188618dba9d4a6c0fbd22",
         "type": "github"
       },
       "original": {
         "owner": "pmarreck",
-        "repo": "roc",
-        "rev": "fbc131fe353ccbad9ca2f77ab652b6f75d5180fe",
+        "repo": "roc_luajit",
+        "rev": "cfd57c1f319df2782e4188618dba9d4a6c0fbd22",
         "type": "github"
       }
     },
