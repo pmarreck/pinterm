@@ -85,19 +85,33 @@ const shapeOf = (cp, col, row, m, dpr) => {
 	return { clip: clip.path[0].rect, ellipse: shape.ellipse };
 };
 
-test("the two ball halves are one ellipse centered on their shared edge, each clipped to its own cell", () => {
-	for (const m of metricsSets) for (const dpr of dprs) {
-		const left = shapeOf(0x1cdaa, 10, 5, m, dpr);
-		const right = shapeOf(0x1cd6e, 11, 5, m, dpr);
-		assert.deepEqual(left.ellipse, right.ellipse);
-		const [cx, cy, rx, ry] = left.ellipse;
-		assert.ok(Math.abs(cx - 11 * m.width) <= 0.5 / dpr, "centered on the shared edge");
-		assert.ok(Math.abs(cy - 5.5 * m.height) < 1e-9, "centered on the row");
-		assert.ok(rx <= m.width && ry <= m.height / 2 && rx > 0.7 * m.width && ry > 0.35 * m.height, "fills most of the two cells");
-		assert.ok(Math.abs(rx - ry) < 0.2 * ry, "round, not stretched");
-		const [lx, , lw] = left.clip, [rxc, , rw] = right.clip;
-		assert.ok(Math.abs(lx + lw - rxc) < 1e-9, "clips meet");
-		assert.ok(lx + lw <= cx + 0.5 / dpr && rxc >= cx - 0.5 / dpr && rw > 0 && lw > 0, "each half on its own side");
+// Unicode names the filled eighths of an octant cell: positions 1-8 run left
+// to right, top to bottom, two per row (UnicodeData.txt, Unicode 16).
+const OCTANT_NAMES = { 0x1cdaa: "BLOCK OCTANT-234568", 0x1cd6e: "BLOCK OCTANT-134567" };
+
+test("the two ball halves draw exactly the eighths their Unicode names list, on device pixels", () => {
+	const near = (a, b) => Math.abs(a - b) < 1e-9;
+	for (const [cpText, name] of Object.entries(OCTANT_NAMES)) {
+		const cp = Number(cpText);
+		const named = new Set([...name.split("-")[1]].map(Number));
+		for (const m of metricsSets) for (const dpr of dprs) for (const [col, row] of [[0, 0], [10, 5], [57, 31]]) {
+			const ctx = recorder();
+			assert.equal(drawCellGlyph(ctx, cp, col, row, m, dpr), true);
+			assert.ok(ctx.ops.every((o) => o.op === "rect"), "plain filled rectangles, no smooth shapes");
+			const rects = ctx.ops.map(({ x, y, w, h }) => ({ left: x, top: y, right: x + w, bottom: y + h }));
+			const where = `U+${cp.toString(16)} col ${col} row ${row} ${JSON.stringify(m)} dpr ${dpr}`;
+			for (const r of rects) for (const v of Object.values(r)) assert.ok(near(v * dpr, Math.round(v * dpr)), `${where}: ${v} on a device pixel`);
+			// Sample the center of each eighth; it is covered exactly when named.
+			for (let pos = 1; pos <= 8; pos++) {
+				const x = (col + ((pos - 1) % 2 + 0.5) / 2) * m.width;
+				const y = (row + (Math.floor((pos - 1) / 2) + 0.5) / 4) * m.height;
+				const covered = rects.some((r) => r.left <= x && x < r.right && r.top <= y && y < r.bottom);
+				assert.equal(covered, named.has(pos), `${where}: eighth ${pos}`);
+			}
+			// Nothing spills outside the cell.
+			const cell = rectOf(BLOCKS.full, col, row, m, dpr);
+			for (const r of rects) assert.ok(r.left >= cell.left - 1e-9 && r.right <= cell.right + 1e-9 && r.top >= cell.top - 1e-9 && r.bottom <= cell.bottom + 1e-9, `${where}: inside the cell`);
+		}
 	}
 });
 
