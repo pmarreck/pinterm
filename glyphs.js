@@ -6,14 +6,17 @@
 // with edges snapped to device pixels so neighboring cells tile exactly.
 
 const UPPER_HALF = 0x2580, LOWER_HALF = 0x2584, FULL_BLOCK = 0x2588;
-// The two-cell ball is sent as the octants U+1CDAA/U+1CD6E, a 4x4 block octagon
-// that terminals draw without a font; here it is drawn as a smooth disc.
+// The two-cell ball is the octants U+1CDAA/U+1CD6E, a 4x4 block octagon that
+// terminals draw without a font; it is drawn here as the same blocks.
 const BALL_DOT = 0x25cf, BALL_LEFT = 0x1cdaa, BALL_RIGHT = 0x1cd6e;
 export const GLYPHS = [UPPER_HALF, LOWER_HALF, FULL_BLOCK, BALL_DOT, BALL_LEFT, BALL_RIGHT];
 
-// Ball radius as a share of the cell height; the two-cell ball is capped at
-// the cell width so it stays inside its pair of cells.
-const BALL_RADIUS = 0.45;
+// Filled eighths of each octant, top row first, as [left, right] per row
+// (U+1CDAA is BLOCK OCTANT-234568, U+1CD6E is BLOCK OCTANT-134567).
+const OCTANTS = {
+	[BALL_LEFT]: [[0, 1], [1, 1], [1, 1], [0, 1]],
+	[BALL_RIGHT]: [[1, 0], [1, 1], [1, 1], [1, 0]],
+};
 const DOT_RADIUS = 0.42;
 
 /** Draw code point `cp` in cell (col, row) with the context's current fill
@@ -29,18 +32,18 @@ export function drawCellGlyph(ctx, cp, col, row, metrics, dpr) {
 		case LOWER_HALF: ctx.fillRect(left, mid, right - left, bottom - mid); return true;
 		case FULL_BLOCK: ctx.fillRect(left, top, right - left, bottom - top); return true;
 	}
-	// Ball shapes: an ellipse clipped to this cell. The halves share one
-	// ellipse centered on the edge between their cells.
-	const cy = (row + 0.5) * h;
-	let cx, rx, ry;
-	if (cp === BALL_DOT) {
-		cx = (col + 0.5) * w;
-		rx = ry = DOT_RADIUS * Math.min(w, h);
-	} else {
-		cx = cp === BALL_LEFT ? right : left;
-		ry = BALL_RADIUS * h;
-		rx = Math.min(ry, 0.95 * w);
+	const octant = OCTANTS[cp];
+	if (octant) {
+		const xs = [left, snap((col + 0.5) * w), right];
+		const ys = [0, 1, 2, 3, 4].map((i) => snap((row + i / 4) * h));
+		octant.forEach((cells, r) => cells.forEach((on, c) => {
+			if (on) ctx.fillRect(xs[c], ys[r], xs[c + 1] - xs[c], ys[r + 1] - ys[r]);
+		}));
+		return true;
 	}
+	// The small ball dot: a circle clipped to its cell.
+	const cx = (col + 0.5) * w, cy = (row + 0.5) * h;
+	const rx = DOT_RADIUS * Math.min(w, h), ry = rx;
 	ctx.save();
 	ctx.beginPath();
 	ctx.rect(left, top, right - left, bottom - top);
