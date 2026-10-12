@@ -5,9 +5,12 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     roc-upstream.url = "github:roc-lang/roc/1a4df199210309bbb6befb1322f7435361bd01e1?dir=src";
+    # Printable-binary: its Roc codec is copied into src/ (checked identical to
+    # this pin by tests) and its CLI is the independent decoder in the tests.
+    printable-binary.url = "github:pmarreck/printable-binary/8942124bda71cd06c39bda6db7c669953dd40452";
   };
 
-  outputs = { self, nixpkgs, flake-utils, roc-upstream }:
+  outputs = { self, nixpkgs, flake-utils, roc-upstream, printable-binary }:
     # Explicit systems: nixpkgs no longer evaluates x86_64-darwin.
     flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ] (system:
       let
@@ -23,11 +26,12 @@
           hash = "sha256-ylBlhpFJaChMnNaSc+R/yvTLiDnjTH9Sz/HBr8CNU3k=";
         };
         buildTools = [ pkgs.zig_0_16 pkgs.binutils pkgs.bash pkgs.coreutils pkgs.gnused ];
-        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps pkgs.nodejs pkgs.chromium pkgs.git ];
+        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps pkgs.nodejs pkgs.chromium pkgs.git pkgs.b3sum printable-binary.packages.${system}.default ];
         rocEnv = {
           PINTERM_ROC = "${rocToolchain}/bin/roc";
           PINTERM_ROC_SOURCE_DIR = "${rocToolchain.src}";
           PINTERM_GHOSTTY_WEB = "${ghosttyWeb}";
+          PINTERM_PRINTABLE_BINARY_SRC = "${printable-binary}";
         };
         src = pkgs.lib.cleanSourceWith {
           src = ./.;

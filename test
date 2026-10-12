@@ -17,6 +17,10 @@ export MUTE_DEBUG_STATUS=1 PINTERM_MUTE=1
 export PINTERM_BIN="${PINTERM_BIN:-$root/out/release/bin/pinterm}"
 work="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-test.XXXXXX")"
 trap 'command rm -rf -- "$work"' EXIT
+# Interactive test sessions would otherwise read and write the real per-user
+# high-score file; give them a private data directory instead.
+unset PINTERM_SCORES
+export XDG_DATA_HOME="$work/xdg-data"
 failed=()
 
 # report NAME: print a finished job's captured output and record failure.

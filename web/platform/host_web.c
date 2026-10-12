@@ -83,7 +83,7 @@ static int have_last;
 
 static void release_last(void) {
 	if (!have_last) return;
-	(void)pinterm_web_release(last.bytes, last.samples, last.log);
+	(void)pinterm_web_release(last.bytes, last.samples, last.log, last.save);
 	have_last = 0;
 }
 
@@ -96,6 +96,17 @@ __attribute__((export_name("web_init"))) void web_init(uint32_t count) {
 	__builtin_memcpy(cfg.elements, input, count * 8u);
 	release_last();
 	model = pinterm_web_init(cfg);
+}
+
+/* Saved high scores: `length` bytes previously written to web_input().
+ * Returns 0 when there were none, 1 when loaded, 2 when damaged. */
+__attribute__((export_name("web_load"))) uint32_t web_load(uint32_t length) {
+	if (length > INPUT_CAPACITY) __builtin_trap();
+	RocList bytes = pinterm_web_bytes(length);
+	__builtin_memcpy(bytes.elements, input, length);
+	__typeof__(pinterm_web_load((RocBox)0, (RocList){0})) out = pinterm_web_load(model, bytes);
+	model = out.model;
+	return out.status;
 }
 
 /* Tick packet of `length` bytes previously written to web_input(). */
@@ -115,4 +126,6 @@ __attribute__((export_name("web_samples_ptr"))) void *web_samples_ptr(void) { re
 __attribute__((export_name("web_samples_len"))) uint32_t web_samples_len(void) { return (uint32_t)last.samples.length; }
 __attribute__((export_name("web_log_ptr"))) void *web_log_ptr(void) { return last.log.elements; }
 __attribute__((export_name("web_log_len"))) uint32_t web_log_len(void) { return (uint32_t)last.log.length; }
+__attribute__((export_name("web_save_ptr"))) void *web_save_ptr(void) { return last.save.elements; }
+__attribute__((export_name("web_save_len"))) uint32_t web_save_len(void) { return (uint32_t)last.save.length; }
 __attribute__((export_name("web_quit"))) uint32_t web_quit(void) { return last.quit; }

@@ -12,6 +12,12 @@ run! = || {
 	var $state = Loop.init(cfg)
 	var $running = Bool.True
 	_ = Host.log!(Str.to_utf8("event boot cols=${cfg.cols.to_str()} rows=${cfg.rows.to_str()} sound=${Loop.bool_str(cfg.sound)}\n"))
+	(loaded, scores) = Loop.load_scores($state, Host.load_scores!())
+	$state = loaded
+	if scores == Damaged {
+		Host.control!(2)
+	}
+	_ = Host.log!(Str.to_utf8("${Loop.scores_event(scores)}\n"))
 	while $running {
 		packet = Host.tick!()
 		out = Loop.frame($state, packet)
@@ -21,6 +27,9 @@ run! = || {
 		}
 		if !out.samples.is_empty() {
 			_ = Host.audio!(out.samples)
+		}
+		if !out.save.is_empty() {
+			_ = Host.save_scores!(out.save)
 		}
 		if !out.log.is_empty() {
 			_ = Host.log!(out.log)

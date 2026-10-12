@@ -54,6 +54,7 @@ static struct {
 	const char *frames_out;
 	const char *log_out;
 	const char *audio_out;
+	const char *scores_path;
 	bool full_frames;
 } opt = {.color = -1, .sound = -1, .fps = DEFAULT_FPS};
 
@@ -72,6 +73,8 @@ static struct {
 	ScriptEvent *script;
 	size_t script_count, script_next;
 	int last_cols, last_rows;
+	char *scores_path; /* NULL: no score file in use */
+	char warning[1024]; /* shown on stderr once the terminal is restored */
 } st = {.tty_in = -1, .out_fd = STDOUT_FILENO, .audio_fd = -1, .audio_pid = -1};
 
 static volatile sig_atomic_t quit_requested;
@@ -145,6 +148,10 @@ static void cleanup(void) {
 	audio_close();
 	if (st.frames) fflush(st.frames);
 	if (st.log) fflush(st.log);
+	if (st.warning[0]) {
+		fputs(st.warning, stderr);
+		st.warning[0] = '\0';
+	}
 }
 
 static void on_quit_signal(int sig) {
@@ -301,8 +308,102 @@ void pt_log(const uint8_t *bytes, size_t length) {
 	if (st.log) fwrite(bytes, 1, length, st.log);
 }
 
+/* Remember a score-file problem for stderr; printed after the terminal is restored. */
+static void scores_warn(const char *what, const char *path) {
+	size_t n = strlen(st.warning);
+	snprintf(st.warning + n, sizeof st.warning - n, "pinterm: %s %s: %s\n", what, path, errno ? strerror(errno) : "unknown error");
+}
+
+/* ---------- high-score file ---------- */
+
+/* Where saved scores live: --scores PATH, else $PINTERM_SCORES, else (never
+ * for headless runs, so tests and replays cannot touch real scores) the
+ * platform's per-user data directory. Returns NULL for "no file". */
+static char *scores_path_resolve(void) {
+	if (opt.scores_path) return strdup(opt.scores_path);
+	const char *env = getenv("PINTERM_SCORES");
+	if (env && *env) return strdup(env);
+	if (opt.headless) return NULL;
+	char buf[4096];
+	const char *home = getenv("HOME");
+#if defined(_WIN32)
+	const char *appdata = getenv("APPDATA");
+	if (!appdata || !*appdata) return NULL;
+	snprintf(buf, sizeof buf, "%s\\pinterm\\scores.txt", appdata);
+#elif defined(__APPLE__)
+	if (!home || !*home) return NULL;
+	snprintf(buf, sizeof buf, "%s/Library/Application Support/pinterm/scores.txt", home);
+#else
+	const char *xdg = getenv("XDG_DATA_HOME");
+	if (xdg && *xdg == '/') snprintf(buf, sizeof buf, "%s/pinterm/scores.txt", xdg);
+	else if (home && *home) snprintf(buf, sizeof buf, "%s/.local/share/pinterm/scores.txt", home);
+	else return NULL;
+#endif
+	return strdup(buf);
+}
+
+/* mkdir -p for the parent directories of path. */
+static int make_parents(const char *path) {
+	char dir[4096];
+	if (snprintf(dir, sizeof dir, "%s", path) >= (int)sizeof dir) return -1;
+	for (char *p = dir + 1; *p; p++) {
+		if (*p != '/') continue;
+		*p = '\0';
+		if (mkdir(dir, 0700) != 0 && errno != EEXIST) return -1;
+		*p = '/';
+	}
+	return 0;
+}
+
+/* Whole file, at most PT_SCORES_MAX bytes; empty when missing or unreadable. */
+size_t pt_load_scores(uint8_t *buf, size_t capacity) {
+	if (!st.scores_path) return 0;
+	FILE *f = fopen(st.scores_path, "rb");
+	if (!f) {
+		if (errno != ENOENT) scores_warn("cannot read", st.scores_path);
+		return 0;
+	}
+	size_t n = fread(buf, 1, capacity, f);
+	fclose(f);
+	return n;
+}
+
+/* Atomic replace: write a sibling temp file, flush it to disk, rename. */
+void pt_save_scores(const uint8_t *bytes, size_t length) {
+	if (!st.scores_path) return;
+	char tmp[4200];
+	snprintf(tmp, sizeof tmp, "%s.tmp-%ld", st.scores_path, (long)getpid());
+	FILE *f = NULL;
+	if (make_parents(st.scores_path) != 0 || !(f = fopen(tmp, "wb")) ||
+		fwrite(bytes, 1, length, f) != length || fflush(f) != 0 || fsync(fileno(f)) != 0) {
+		if (f) fclose(f);
+		unlink(tmp);
+		scores_warn("cannot save", st.scores_path);
+		return;
+	}
+	fclose(f);
+	if (rename(tmp, st.scores_path) != 0) {
+		unlink(tmp);
+		scores_warn("cannot save", st.scores_path);
+	}
+}
+
+/* Keep an unreadable file for inspection instead of overwriting it. */
+static void pt_quarantine_scores(void) {
+	if (!st.scores_path) return;
+	char bad[4200];
+	snprintf(bad, sizeof bad, "%s.bad-%lld", st.scores_path, (long long)time(NULL));
+	if (rename(st.scores_path, bad) != 0) {
+		scores_warn("cannot set aside a damaged score file", st.scores_path);
+		return;
+	}
+	size_t n = strlen(st.warning);
+	snprintf(st.warning + n, sizeof st.warning - n, "pinterm: ignored a damaged score file; kept it as %s\n", bad);
+}
+
 void pt_control(uint8_t code) {
 	if (code == PT_CONTROL_SUSPEND && !opt.headless) stop_requested = 1;
+	if (code == PT_CONTROL_QUARANTINE_SCORES) pt_quarantine_scores();
 }
 
 static void query_size(void) {
@@ -479,7 +580,8 @@ static void usage(FILE *out) {
 		"      --mute             disable sound      --sound  force sound on (e.g. over SSH)\n"
 		"      --seed N           deterministic table randomness\n"
 		"      --fps N            frame rate, 20-120 (default 60)\n"
-		"\n"
+		"      --scores PATH      high-score file (default: $PINTERM_SCORES, else\n"
+		"                         $XDG_DATA_HOME/pinterm/scores.txt; none when headless)\n"		"\n"
 		"Headless replay (testing):\n"
 		"      --headless         no terminal; fixed clock; frames go to --frames-out\n"
 		"      --size COLSxROWS   headless terminal size (default 80x40)\n"
@@ -489,7 +591,8 @@ static void usage(FILE *out) {
 		"      --log-out FILE     write structured game events (- or @stdout, @stderr)\n"
 		"      --audio-out FILE   write raw s16le 22050 Hz mono PCM instead of playing\n"
 		"      --full-frames      redraw every frame completely (viewable dumps)\n"		"\n"
-		"Environment: PINTERM_MUTE=1 disables sound. Sound is off by default over SSH.\n",
+		"Environment: PINTERM_MUTE=1 disables sound. Sound is off by default over SSH.\n"
+		"             PINTERM_SCORES=PATH sets the high-score file (--scores wins).\n",
 		out);
 }
 
@@ -607,6 +710,12 @@ static void parse_args(int argc, char **argv) {
 			opt.log_out = v;
 		} else if ((v = opt_value(argc, argv, &i, "--audio-out"))) {
 			opt.audio_out = v;
+		} else if ((v = opt_value(argc, argv, &i, "--scores"))) {
+			if (!*v || !strcmp(v, "-") || !strcmp(v, "@stdin") || !strcmp(v, "@stdout") || !strcmp(v, "@stderr")) {
+				fputs("pinterm: --scores needs a file path (it is read and rewritten)\n", stderr);
+				exit(2);
+			}
+			opt.scores_path = v;
 		} else {
 			fprintf(stderr, "pinterm: unknown option '%s' (try --help)\n", a);
 			exit(2);
@@ -673,6 +782,7 @@ int main(int argc, char **argv) {
 		}
 		clock_gettime(CLOCK_MONOTONIC, &st.deadline);
 	}
+	st.scores_path = scores_path_resolve();
 	query_size();
 	resized = 1;
 	uint8_t status = pinterm_run();

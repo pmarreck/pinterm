@@ -103,6 +103,26 @@ right flipper moves to the next letter, wrapping after the third. The entry
 locks in after 10 seconds without a flipper press, or after three cursor moves
 in a row without changing a letter.
 
+### Saved high scores
+
+The terminal build saves the lists to `--scores PATH`, else `$PINTERM_SCORES`,
+else `$XDG_DATA_HOME/pinterm/scores.txt` (normally
+`~/.local/share/pinterm/scores.txt`). The code also has the macOS location
+(`~/Library/Application Support/pinterm/scores.txt`) and the Windows one
+(`%APPDATA%\pinterm\scores.txt`), though neither platform is supported yet.
+Headless replays never use a default location, so tests cannot touch
+real scores. The browser build keeps the same file in `localStorage`; the
+self-playing demo never saves.
+
+The file is plain text: a `pinterm scores 1` header line, then one line of
+[printable-binary](https://github.com/pmarreck/printable-binary) glyphs. The
+glyphs encode a 4-byte nonce and the scores encrypted with TEA (the Tiny
+Encryption Algorithm) in counter mode. The scores are a short text list with
+the BLAKE3 hash of that list appended as hex. The key is in the source, so
+this keeps casual edits out rather than providing secrecy. Saves replace the
+file atomically. A file that fails to decode or verify is renamed to
+`scores.txt.bad-<unix time>` and kept, and pinterm starts with empty lists.
+
 ### Options
 
 ```text
@@ -112,10 +132,12 @@ in a row without changing a letter.
 --mute / --sound    sound off / force sound on (sound is off by default over SSH)
 --seed N            deterministic randomness
 --fps N             frame rate, 20-120 (default 60)
+--scores PATH       high-score file (default: see "Saved high scores" above)
 --about, --help
 ```
 
-`PINTERM_MUTE=1` also disables sound. Run `pinterm --help` for the headless
+`PINTERM_MUTE=1` also disables sound. `PINTERM_SCORES=PATH` sets the high-score file
+(`--scores` takes precedence). Run `pinterm --help` for the headless
 replay options used by the tests.
 
 ## Terminal and audio compatibility

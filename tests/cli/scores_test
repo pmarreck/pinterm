@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Saved high scores: where the file lives (--scores, PINTERM_SCORES, never a
+# default for headless runs), saving after initials lock in, loading it back,
+# and setting a damaged file aside instead of overwriting it.
+set -u
+SUITE=scores
+. "$(dirname "$0")/../lib/harness.sh"
+bin="${PINTERM_BIN:?}"
+unset PINTERM_SCORES
+
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm scores.XXXXXX")"
+export XDG_DATA_HOME="$dir/xdg"
+# One full game with seed 7: launch every 10 s, steady flipping, and three
+# right flips in a row each 10 s, which lock the initials in after game over
+# (around frame 5221).
+script="$dir/game"
+awk 'BEGIN { print "5 space"; for (f = 30; f < 6000; f++) { if (f % 600 == 0) print f " space"; else if (f % 600 >= 300 && f % 600 < 303) print f " /"; else if (f % 23 == 0) print f " z"; else if (f % 29 == 0) print f " /" } }' >"$script"
+play() { capture timeout 60 "$bin" --headless --size 100x40 --frames 6000 --seed 7 --script "$script" --log-out "$dir/log" "$@"; }
+
+capture "$bin" --help
+check "--help lists --scores" grep -q -- "--scores PATH" <<<"$out"
+check "--help names PINTERM_SCORES" grep -q "PINTERM_SCORES" <<<"$out"
+capture "$bin" --headless --scores -
+check "--scores rejects stdin/stdout" [ "$rc" -eq 2 ]
+check "--scores rejection explains" grep -q -- "--scores needs a file path" <<<"$err"
+
+# Headless runs without --scores or PINTERM_SCORES never touch a score file.
+play
+check "headless default run exits cleanly" [ "$rc" -eq 0 ]
+check "headless default reports no score file" grep -qx "event scores none" "$dir/log"
+check "headless default locks initials" grep -q "event initials" "$dir/log"
+check "headless default writes nothing" [ -z "$(ls -A "$dir/xdg" 2>/dev/null)" ]
+
+# --scores PATH (with spaces, in a directory that does not exist yet) is
+# created when initials lock in, then loaded by the next run.
+file="$dir/new dir/my scores.txt"
+play --scores "$file"
+check "--scores run exits cleanly" [ "$rc" -eq 0 ]
+check "--scores file written" [ -s "$file" ]
+check "--scores run quiet on stderr" [ -z "$err" ]
+check "no temp file left behind" [ "$(ls -A "$dir/new dir" | wc -l)" -eq 1 ]
+play --scores "$file"
+check "saved scores load on the next run" grep -qx "event scores loaded=1" "$dir/log"
+check "second game adds to the list" [ "$(grep -c "event initials" "$dir/log")" -eq 1 ]
+capture timeout 20 "$bin" --headless --frames 10 --scores "$file" --log-out "$dir/log"
+check "two games saved" grep -qx "event scores loaded=2" "$dir/log"
+
+# PINTERM_SCORES applies when --scores is absent; --scores wins over it.
+env_file="$dir/env scores.txt"
+PINTERM_SCORES="$env_file" play
+check "PINTERM_SCORES file written" [ -s "$env_file" ]
+other="$dir/other.txt"
+PINTERM_SCORES="$env_file" play --scores "$other"
+check "--scores overrides PINTERM_SCORES" [ -s "$other" ]
+PINTERM_SCORES="$env_file" capture timeout 20 "$bin" --headless --frames 10 --log-out "$dir/log"
+check "PINTERM_SCORES file still holds one game" grep -qx "event scores loaded=1" "$dir/log"
+
+# A damaged file is reported, kept as FILE.bad-TIME, and not overwritten.
+bad="$dir/bad.txt"
+printf 'not a score file\n' >"$bad"
+capture timeout 20 "$bin" --headless --frames 10 --scores "$bad" --log-out "$dir/log"
+check "damaged file run exits cleanly" [ "$rc" -eq 0 ]
+check "damaged file reported" grep -qx "event scores damaged" "$dir/log"
+check "damaged file warning on stderr" grep -q "damaged score file" <<<"$err"
+check "damaged file moved aside" [ ! -e "$bad" ]
+kept="$(find "$dir" -maxdepth 1 -name 'bad.txt.bad-*' | head -n 1)"
+kept_intact() { [ -n "$kept" ] && grep -qx "not a score file" "$kept"; }
+check "damaged file kept intact" kept_intact
+
+command rm -rf -- "$dir"
+finish

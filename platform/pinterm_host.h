@@ -22,7 +22,13 @@ void pt_audio(const int16_t *samples, size_t count);
 size_t pt_tick(uint8_t *packet, size_t capacity);
 /* Newline-terminated structured event lines (headless evidence log). */
 void pt_log(const uint8_t *bytes, size_t length);
-/* Control requests from the core. */
-enum { PT_CONTROL_SUSPEND = 1 };
+/* Saved high scores: the whole file (empty if none or no file is in use),
+ * and an atomic replacement of it. */
+enum { PT_SCORES_MAX = 65536 };
+size_t pt_load_scores(uint8_t *buf, size_t capacity);
+void pt_save_scores(const uint8_t *bytes, size_t length);
+/* Control requests from the core. QUARANTINE_SCORES sets an unreadable score
+ * file aside instead of letting the next save overwrite it. */
+enum { PT_CONTROL_SUSPEND = 1, PT_CONTROL_QUARANTINE_SCORES = 2 };
 void pt_control(uint8_t code);
 #endif

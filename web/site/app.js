@@ -6,6 +6,7 @@ import { loadGame, keyEventBytes, SAMPLE_RATE, FLAG_RESIZED } from "./pinterm-co
 import { createTouchControls } from "./touch-controls.js";
 import { createShakeDetector } from "./shake.js";
 import { drawCellGlyph, GLYPHS, snapRect } from "./glyphs.js";
+import { createScoreStore } from "./score-storage.js";
 
 const params = new URLSearchParams(location.search);
 const demo = params.has("demo");
@@ -73,7 +74,14 @@ disarmTextInput();
 new MutationObserver(disarmTextInput).observe(container, { subtree: true, childList: true, attributes: true, attributeFilter: ["contenteditable"] });
 
 const wasm = await (await fetch("./pinterm.wasm")).arrayBuffer();
-let game = await loadGame(wasm, { cols: term.cols, rows: term.rows, seed, sound: true });
+// Saved high scores live in localStorage; the self-playing demo never saves.
+const scoreStore = createScoreStore(demo ? null : (() => { try { return localStorage; } catch { return null; } })());
+async function newGame(gameSeed) {
+	const g = await loadGame(wasm, { cols: term.cols, rows: term.rows, seed: gameSeed, sound: true });
+	if (g.load(scoreStore.read()) === "damaged") scoreStore.quarantine();
+	return g;
+}
+let game = await newGame(seed);
 let pending = [];
 let size = { cols: 0, rows: 0 };
 let quitShown = false;
@@ -167,7 +175,7 @@ for (const name of ["touchend", "pointerup", "click", "keydown"]) {
 
 async function restart() {
 	quitShown = false;
-	game = await loadGame(wasm, { cols: term.cols, rows: term.rows, seed: seed + 1, sound: true });
+	game = await newGame(seed + 1);
 	size = { cols: 0, rows: 0 };
 }
 
@@ -214,6 +222,7 @@ function tick(now) {
 	const out = game.frame(nowUs, size.cols, size.rows, flags, input);
 	term.write(out.bytes);
 	playSamples(out.samples);
+	if (out.save.length) scoreStore.write(out.save);
 	if (out.log) {
 		const lines = out.log.trim().split("\n");
 		eventLog.push(...lines);

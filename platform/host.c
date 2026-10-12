@@ -78,3 +78,16 @@ RocList pinterm_host_log(RocList bytes) {
 }
 
 void pinterm_host_control(uint8_t code) { pt_control(code); }
+
+RocList pinterm_host_load_scores(void) {
+	static uint8_t buf[PT_SCORES_MAX];
+	size_t n = pt_load_scores(buf, sizeof buf);
+	RocList list = pinterm_owned_bytes(n);
+	if (n) memcpy(list.elements, buf, n);
+	return list;
+}
+
+RocList pinterm_host_save_scores(RocList bytes) {
+	pt_save_scores(bytes.elements, bytes.length);
+	return bytes;
+}

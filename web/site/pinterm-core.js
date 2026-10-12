@@ -37,7 +37,8 @@ export async function loadGame(wasmBytes, options = {}) {
 	values.forEach((v, i) => configView.setBigInt64(i * 8, BigInt(Math.trunc(v)), true));
 	x.web_init(CONFIG_SLOTS);
 
-	// frame(nowUs, cols, rows, flags, inputBytes) -> { bytes, samples, log, quit }
+	// frame(nowUs, cols, rows, flags, inputBytes) -> { bytes, samples, log, save, quit }
+	// (save: the score file's new contents when initials lock in, else empty)
 	function frame(nowUs, cols, rows, flags, input = new Uint8Array(0)) {
 		const n = Math.min(input.length, MAX_INPUT);
 		const base = x.web_input();
@@ -52,9 +53,18 @@ export async function loadGame(wasmBytes, options = {}) {
 		const bytes = new Uint8Array(memory.buffer, x.web_bytes_ptr(), x.web_bytes_len()).slice();
 		const samples = new Int16Array(memory.buffer.slice(x.web_samples_ptr(), x.web_samples_ptr() + 2 * x.web_samples_len()));
 		const log = decoder.decode(new Uint8Array(memory.buffer, x.web_log_ptr(), x.web_log_len()));
-		return { bytes, samples, log, quit: x.web_quit() !== 0 };
+		const save = new Uint8Array(memory.buffer, x.web_save_ptr(), x.web_save_len()).slice();
+		return { bytes, samples, log, save, quit: x.web_quit() !== 0 };
 	}
-	return { frame, memoryBytes: () => memory.buffer.byteLength };
+
+	// load(savedBytes) -> "none" | "loaded" | "damaged": install saved high scores.
+	// Input too large for the shared buffer cannot be a real score file.
+	function load(saved) {
+		if (saved.length > MAX_INPUT) return "damaged";
+		new Uint8Array(memory.buffer, x.web_input(), saved.length).set(saved);
+		return ["none", "loaded", "damaged"][x.web_load(saved.length)];
+	}
+	return { frame, load, memoryBytes: () => memory.buffer.byteLength };
 }
 
 // Kitty keyboard protocol sequences (the core's Input decoder understands

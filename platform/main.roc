@@ -9,8 +9,10 @@ platform ""
 		"pinterm_host_audio": Host.audio!,
 		"pinterm_host_config": Host.config!,
 		"pinterm_host_control": Host.control!,
+		"pinterm_host_load_scores": Host.load_scores!,
 		"pinterm_host_log": Host.log!,
 		"pinterm_host_present": Host.present!,
+		"pinterm_host_save_scores": Host.save_scores!,
 		"pinterm_host_tick": Host.tick!,
 	}
 	targets: {

@@ -1,5 +1,7 @@
 import Audio
 import Loop
+import Scores
+import ScoreFile
 
 main! = |_args| Ok({})
 
@@ -113,4 +115,42 @@ expect {
 expect {
 	a = Loop.frame(Loop.init(loop_cfg), packet(16666, 100, 40, 2, [' ']))
 	Str.from_utf8_lossy(a.log).contains("event start")
+}
+
+# ---------- saved scores ----------
+
+saved_books : List(List(Scores.Entry))
+saved_books = [[{ initials: "ABC", score: 900 }], [], [{ initials: "XYZ", score: 5 }], [], []]
+
+# Saved bytes install every table's list and report how many entries loaded.
+expect {
+	(s, status) = Loop.load_scores(Loop.init(loop_cfg), ScoreFile.encode(Scores.seal(saved_books, 3)))
+	s.game.books == saved_books and s.game.high == 900 and status == Loaded(2) and Loop.scores_event(status) == "event scores loaded=2"
+}
+
+# No file means empty lists; unreadable bytes are reported as damaged and
+# leave the lists empty.
+expect {
+	(none, none_line) = Loop.load_scores(Loop.init(loop_cfg), [])
+	(bad, bad_line) = Loop.load_scores(Loop.init(loop_cfg), [1, 2, 3, 4, 5, 6])
+	none.game.books == List.repeat([], 5) and Loop.scores_event(none_line) == "event scores none" and bad.game.books == List.repeat([], 5) and bad_line == Damaged and Loop.scores_event(bad_line) == "event scores damaged"
+}
+
+# Locking in initials makes that frame carry the sealed lists for the host to
+# save; other frames carry nothing.
+expect {
+	s0 = Loop.init(loop_cfg)
+	g = s0.game
+	entering = { ..s0, game: { ..g, mode: Initials, score: 777, initials: { chars: [1, 2, 3], cursor: 0, last_input: 0.0, unchanged: 2 } } }
+	quiet = Loop.frame(entering, packet(16666, 100, 40, 0, ['z']))
+	locked = Loop.frame(entering, packet(16666, 100, 40, 0, ['/']))
+	quiet.save.is_empty() and read_file(locked.save) == Ok([[{ initials: "ABC", score: 777 }], [], [], [], []])
+}
+
+read_file : List(U8) -> Try(List(List(Scores.Entry)), [BadChecksum, BadFormat])
+read_file = |text| {
+	match ScoreFile.decode(text) {
+		Ok(sealed) => Scores.unseal(sealed)
+		Err(_) => Err(BadFormat)
+	}
 }

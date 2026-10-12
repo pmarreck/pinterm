@@ -2,6 +2,8 @@ import Game
 import Input
 import Render
 import Audio
+import Scores
+import ScoreFile
 import Table
 
 ## Pure per-tick application step between the host and the game: decodes the
@@ -21,7 +23,7 @@ Loop :: [].{
 		last_us : U64,
 		sound : Bool,
 	}
-	Out : { state : State, bytes : List(U8), samples : List(I16), log : List(U8), quit : Bool, suspend : Bool }
+	Out : { state : State, bytes : List(U8), samples : List(I16), log : List(U8), save : List(U8), quit : Bool, suspend : Bool }
 
 	config_from : List(I64) -> Config
 	config_from = |v| {
@@ -53,6 +55,30 @@ Loop :: [].{
 			opts: { color: cfg.color, ascii: cfg.ascii, sound: cfg.sound, help: Bool.False, fps: cfg.fps },
 			last_us: 0,
 			sound: cfg.sound,
+		}
+	}
+
+	## Install saved high-score lists from the score file's bytes. Reports
+	## None (no file), Loaded(entries) or Damaged; on Damaged the host sets the
+	## file aside rather than let the next save overwrite it.
+	load_scores : State, List(U8) -> (State, [None, Loaded(U64), Damaged])
+	load_scores = |s, bytes| {
+		if bytes.is_empty() {
+			(s, None)
+		} else {
+			match decode_file(bytes) {
+				Ok(books) => ({ ..s, game: Game.with_books(s.game, books) }, Loaded(books.fold(0, |n, list| n + list.len())))
+				Err(_) => (s, Damaged)
+			}
+		}
+	}
+
+	scores_event : [None, Loaded(U64), Damaged] -> Str
+	scores_event = |status| {
+		match status {
+			None => "event scores none"
+			Loaded(n) => "event scores loaded=${n.to_str()}"
+			Damaged => "event scores damaged"
 		}
 	}
 
@@ -96,6 +122,7 @@ Loop :: [].{
 			bytes,
 			samples,
 			log,
+			save: if game.fx.contains(ScoresChanged) encode_file(game.books, game.rng.bitwise_xor(game.frame).to_u32_wrap()) else [],
 			quit: quit_flag or routed.quit,
 			suspend: routed.suspend,
 		}
@@ -176,4 +203,17 @@ ensure_base : List(List(U32)), Render.Layout, U64 -> List(List(U32))
 ensure_base = |bases, lay, index| {
 	have = (bases.get(index) ?? []).len() > 0
 	if have or !lay.ok bases else bases.set(index, Render.static_pixels(lay, Table.at(index))) ?? bases
+}
+
+## The score file's text for `books`: sealed behind `nonce`, then written as
+## printable-binary text under a header line.
+encode_file : List(List(Scores.Entry)), U32 -> List(U8)
+encode_file = |books, nonce| ScoreFile.encode(Scores.seal(books, nonce))
+
+decode_file : List(U8) -> Try(List(List(Scores.Entry)), [BadChecksum, BadFormat])
+decode_file = |text| {
+	match ScoreFile.decode(text) {
+		Ok(sealed) => Scores.unseal(sealed)
+		Err(_) => Err(BadFormat)
+	}
 }
