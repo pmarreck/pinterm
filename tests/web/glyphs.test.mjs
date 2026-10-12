@@ -41,7 +41,7 @@ const rectOf = (cp, col, row, m, dpr) => {
 };
 
 test("only the handled code points are drawn; everything else is left to the font", () => {
-	const handled = new Set([0x2580, 0x2584, 0x2588, 0x25cf, 0x1fbe9, 0x1fbeb]);
+	const handled = new Set([0x2580, 0x2584, 0x2588, 0x25cf, 0x1cdaa, 0x1cd6e]);
 	assert.deepEqual(new Set(GLYPHS), handled);
 	for (let cp = 0x20; cp < 0x3000; cp++) {
 		const ctx = recorder();
@@ -87,8 +87,8 @@ const shapeOf = (cp, col, row, m, dpr) => {
 
 test("the two ball halves are one ellipse centered on their shared edge, each clipped to its own cell", () => {
 	for (const m of metricsSets) for (const dpr of dprs) {
-		const left = shapeOf(0x1fbe9, 10, 5, m, dpr);
-		const right = shapeOf(0x1fbeb, 11, 5, m, dpr);
+		const left = shapeOf(0x1cdaa, 10, 5, m, dpr);
+		const right = shapeOf(0x1cd6e, 11, 5, m, dpr);
 		assert.deepEqual(left.ellipse, right.ellipse);
 		const [cx, cy, rx, ry] = left.ellipse;
 		assert.ok(Math.abs(cx - 11 * m.width) <= 0.5 / dpr, "centered on the shared edge");

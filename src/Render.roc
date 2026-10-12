@@ -1233,22 +1233,23 @@ gears_art = |p, base| {
 }
 
 ## Wide-ball threshold: once the ball's diameter covers this many columns it
-## is drawn as two half-circle glyphs instead of one dot, so it looks round
+## is drawn as a two-cell disc instead of one dot, so it looks round
 ## (terminal cells are about twice as tall as wide) and true to its size.
 wide_ball_cols : F64
 wide_ball_cols = 1.5
 
-## Draw one ball: a left/right half-circle pair straddling its center when it
-## spans about two columns, else a dot. The pair is U+1FBE9/U+1FBEB (Unicode 16
-## edge-justified halves, which join into one circle; the older U+25D6/U+25D7
-## are centred in their cells and leave a gap), or "()" in ASCII.
+## Draw one ball: a two-cell octant-mosaic disc straddling its center when it
+## spans about two columns, else a dot. The disc is a 4x4 block octagon from
+## the Unicode 16 octants U+1CDAA (left) and U+1CD6E (right). Terminals such
+## as WezTerm, Ghostty and kitty draw octants themselves, so the ball does not
+## depend on the font (font-drawn half circles showed as boxes); "()" in ASCII.
 draw_ball : List(Render.Cell), Render.Layout, Render.Opts, { x : F64, y : F64 } -> List(Render.Cell)
 draw_ball = |cells, lay, opts, pos| {
 	cx = pos.x * lay.s
 	if 2.0 * Table.ball_radius * lay.s >= wide_ball_cols and cx >= 0.5 and pos.y >= 0.0 {
 		left = floor_u64(cx - 0.5)
 		y = floor_u64(pos.y * lay.s / 2.0)
-		(lcp, rcp) = if opts.ascii ('(', ')') else (0x1FBE9, 0x1FBEB)
+		(lcp, rcp) = if opts.ascii ('(', ')') else (0x1CDAA, 0x1CD6E)
 		put = |cs, col, cp| {
 			if col < lay.tw and y < lay.th {
 				x = lay.ox + col

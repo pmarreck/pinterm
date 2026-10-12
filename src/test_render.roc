@@ -45,7 +45,7 @@ color_opts = { color: 0, ascii: Bool.False, sound: Bool.False, help: Bool.False,
 expect {
 	lines = render_rows(100, 40, color_opts)
 	joined = Str.join_with(lines, "\n")
-	joined.contains("SCORE") and joined.contains("BALL 1/3") and joined.contains("🯩🯫")
+	joined.contains("SCORE") and joined.contains("BALL 1/3") and joined.contains("\u(1CDAA)\u(1CD6E)")
 }
 
 # ASCII mode output is pure 7-bit ASCII and still shows the ball on the plunger.
@@ -237,17 +237,17 @@ ball_cells = |cols, rows, opts, x| {
 	lay = Render.layout(cols, rows)
 	g = TestKit.in_play(started, x, 50.0, 0.0, 0.0)
 	cells = Render.compose(g, opts, lay, Render.static_pixels(lay, g.table), [])
-	glyphs = [0x25CF, 0x1FBE9, 0x1FBEB, '@', '(', ')']
+	glyphs = [0x25CF, 0x1CDAA, 0x1CD6E, '@', '(', ')']
 	cells.map_with_index(|c, i| (i, c.cp)).keep_if(|(i, cp)| i % cols >= lay.ox and i % cols < lay.ox + lay.tw and glyphs.contains(cp)).map(|(i, cp)| (i % cols - lay.ox, cp))
 }
 
-# When the ball spans about two columns it is drawn as two half circles
-# centred on it; when it would cover about one column it stays a single dot.
+# When the ball spans about two columns it is drawn as an octant-mosaic disc
+# centered on it; when it would cover about one column it stays a single dot.
 expect {
 	big = ball_cells(100, 40, color_opts, 22.25)
 	big_shifted = ball_cells(100, 40, color_opts, 22.75)
 	small = ball_cells(80, 24, color_opts, 22.25)
-	big == [(21, 0x1FBE9), (22, 0x1FBEB)] and big_shifted == [(22, 0x1FBE9), (23, 0x1FBEB)] and small.len() == 1 and small.map(|(_, cp)| cp) == [0x25CF]
+	big == [(21, 0x1CDAA), (22, 0x1CD6E)] and big_shifted == [(22, 0x1CDAA), (23, 0x1CD6E)] and small.len() == 1 and small.map(|(_, cp)| cp) == [0x25CF]
 }
 
 # ASCII mode draws the big ball as "()" and the small one as "@".

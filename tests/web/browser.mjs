@@ -173,7 +173,7 @@ try {
 		// Count what reaches the font: the playfield glyphs must be drawn as
 		// shapes (never fillText), while ordinary text still uses the font.
 		await send("Page.addScriptToEvaluateOnNewDocument", { source: `{
-			const shapes = new Set([0x2580, 0x2584, 0x2588, 0x25cf, 0x1fbe9, 0x1fbeb]);
+			const shapes = new Set([0x2580, 0x2584, 0x2588, 0x25cf, 0x1cdaa, 0x1cd6e]);
 			window.__fillText = { shapes: 0, other: 0 };
 			const real = CanvasRenderingContext2D.prototype.fillText;
 			CanvasRenderingContext2D.prototype.fillText = function (s, ...rest) {
