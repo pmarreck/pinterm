@@ -199,8 +199,10 @@ expect {
 
 # ---------- per-table background art ----------
 
-# Art changes a real share of the background, never a gameplay pixel, and
-# each alternate table's art is its own (Classic keeps the plain grid).
+# Art changes a real share of the background, never a gameplay pixel's kind,
+# and each alternate table's art is its own (Classic keeps the plain grid).
+# Only antialiased edge pixels, which blend with the background beside them,
+# may change color; gameplay pixels with no background neighbor are kept.
 expect {
 	lay = Render.layout(100, 40)
 	kind = |p| p.shr_zf_wrap(24)
@@ -211,7 +213,13 @@ expect {
 		pairs = List.map2(with_art, plain, |a, b| (a, b))
 		changed = pairs.count_if(|(a, b)| a != b)
 		gameplay_same = pairs.all(|(a, b)| kind(b) != 0 or kind(a) == 0)
-		gameplay_kept = pairs.all(|(a, b)| kind(b) == 0 or a == b)
+		touches_bg = |idx| {
+			x = idx % lay.pw
+			y = idx // lay.pw
+			near = |nx, ny| kind(px_at(lay.pw, plain, nx, ny)) == 0
+			(x > 0 and near(x - 1, y)) or near(x + 1, y) or (y > 0 and near(x, y - 1)) or near(x, y + 1)
+		}
+		gameplay_kept = pairs.map_with_index(|(a, b), idx| kind(b) == 0 or a == b or touches_bg(idx)).all(|ok| ok)
 		changed * 50 > with_art.len() and gameplay_same and gameplay_kept
 	}
 	(Table.at(0)).art == Grid and check(1) and check(2) and check(3) and check(4)
@@ -306,4 +314,95 @@ expect {
 	g = Game.with_books(Game.new(1), [[{ initials: "ABC", score: 9000 }, { initials: "P M", score: 120 }], [], [], [], []])
 	rows = screen(g, 100, 40)
 	rows.any(|r| r.contains("HIGH SCORES")) and rows.any(|r| r.contains("1 ABC") and r.contains("9,000")) and rows.any(|r| r.contains("2 P M") and r.contains("120"))
+}
+
+# ---------- antialiasing ----------
+
+channels : U32 -> List(U32)
+channels = |p| [p.shr_zf_wrap(16).bitwise_and(0xFF), p.shr_zf_wrap(8).bitwise_and(0xFF), p.bitwise_and(0xFF)]
+
+# Raster pixel (x, y) of a buffer `pw` pixels wide.
+px_at : U64, List(U32), U64, U64 -> U32
+px_at = |pw, buf, x, y| buf.get(y * pw + x) ?? 0
+
+aa_first : U64
+aa_first = 1
+
+kind_of_px : U32 -> U32
+kind_of_px = |p| p.shr_zf_wrap(24)
+
+# Every channel of p lies between the matching channels of a and b, allowing
+# one step of rounding.
+between : U32, U32, U32 -> Bool
+between = |p, a, b| {
+	List.map3(channels(p), channels(a), channels(b), |v, x, y| (v + 1 >= (if x < y x else y)) and (v <= (if x > y x else y) + 1)).all(|ok| ok)
+}
+
+# The static table is supersampled where its point-sampled raster has an edge:
+# kinds stay those of the pixel centers, flat interiors are unchanged, and most
+# wall pixels that touch the background get a blended color.
+expect {
+	lay = toy_lay
+	sharp = Render.static_pixels_sampled(lay, started.table, 1)
+	smooth = Render.static_pixels(lay, started.table)
+	var $interior_ok = Bool.True
+	var $edges = 0
+	var $blended = 0
+	var $y = aa_first
+	while $y + 1 < lay.ph {
+		var $x = aa_first
+		while $x + 1 < lay.pw {
+			s = px_at(lay.pw, sharp, $x, $y)
+			flat = [px_at(lay.pw, sharp, $x - 1, $y - 1), px_at(lay.pw, sharp, $x, $y - 1), px_at(lay.pw, sharp, $x + 1, $y - 1), px_at(lay.pw, sharp, $x - 1, $y), px_at(lay.pw, sharp, $x + 1, $y), px_at(lay.pw, sharp, $x - 1, $y + 1), px_at(lay.pw, sharp, $x, $y + 1), px_at(lay.pw, sharp, $x + 1, $y + 1)].all(|n| n == s)
+			if flat and px_at(lay.pw, smooth, $x, $y) != s {
+				$interior_ok = Bool.False
+			}
+			touches_bg = [px_at(lay.pw, sharp, $x - 1, $y), px_at(lay.pw, sharp, $x + 1, $y), px_at(lay.pw, sharp, $x, $y - 1), px_at(lay.pw, sharp, $x, $y + 1)].any(|n| kind_of_px(n) == 0)
+			if kind_of_px(s) == 1 and touches_bg {
+				$edges = $edges + 1
+				if px_at(lay.pw, smooth, $x, $y) != s {
+					$blended = $blended + 1
+				}
+			}
+			$x = $x + 1
+		}
+		$y = $y + 1
+	}
+	kinds_kept = List.map2(sharp, smooth, |a, b| kind_of_px(a) == kind_of_px(b)).all(|ok| ok)
+	sharp.len() == smooth.len() and kinds_kept and $interior_ok and $edges > 50 and $blended * 2 > $edges
+}
+
+# Moving parts are painted by coverage: each pixel a mover changes is either
+# its exact color or a blend between that color and the scene under it, and
+# the edge has real blends. A blend under half coverage keeps the scene's kind.
+expect {
+	m = { a: { x: 10.0, y: 40.0 }, b: { x: 30.0, y: 55.0 }, half: 3.0, period: 4.0 }
+	g = { ..started, table: { ..bare, movers: [m] }, time: 1.3 }
+	empty = { ..started, table: bare, time: 1.3 }
+	big = Render.layout(200, 80)
+	base = Render.static_pixels(big, bare)
+	drawn = Render.playfield(g, big, base)
+	without = Render.playfield(empty, big, base)
+	color = bare.palette.target_lit
+	pairs = List.map2(drawn, without, |w, e| (w, e)).keep_if(|(w, e)| w != e)
+	exact = pairs.count_if(|(w, _)| w.bitwise_and(0xFFFFFF) == color)
+	blends = pairs.keep_if(|(w, _)| w.bitwise_and(0xFFFFFF) != color)
+	exact > 10 and blends.len() > 10
+		and blends.all(|(w, e)| between(w, e, color) and (kind_of_px(w) == kind_of_px(e) or kind_of_px(w) == 2))
+}
+
+# Bumpers stay crisp: antialiasing leaves every bumper pixel, and every pixel
+# beside one, exactly as the point-sampled raster has it.
+expect {
+	lay = toy_lay
+	sharp = Render.static_pixels_sampled(lay, started.table, 1)
+	smooth = Render.static_pixels(lay, started.table)
+	is_bumper = |x, y| kind_of_px(px_at(lay.pw, sharp, x, y)) == 2
+	near_bumper = |idx| {
+		x = idx % lay.pw
+		y = idx // lay.pw
+		is_bumper(x, y) or (x > 0 and is_bumper(x - 1, y)) or (x + 1 < lay.pw and is_bumper(x + 1, y)) or (y > 0 and is_bumper(x, y - 1)) or (y + 1 < lay.ph and is_bumper(x, y + 1))
+	}
+	near = List.map2(sharp, smooth, |a, b| (a, b)).map_with_index(|(a, b), idx| (near_bumper(idx), a == b)).keep_if(|(n, _)| n)
+	near.len() > 20 and near.all(|(_, same)| same)
 }

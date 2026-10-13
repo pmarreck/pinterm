@@ -68,20 +68,39 @@ Render :: [].{
 		{ cols, rows, s, ox, oy, tw, th, pw: tw, ph: th * 2, panel, px: if panel ox + tw + 1 else 0, ok }
 	}
 
-	## Static raster of one table, recomputed only when the layout changes.
+	## Static raster of one table, recomputed only when the layout changes:
+	## antialiased with 4x4 supersampling at edges, except around bumpers.
 	static_pixels : Layout, Table.Layout -> List(U32)
-	static_pixels = |lay, table| {
-		var $buf = List.with_capacity(lay.pw * lay.ph)
+	static_pixels = |lay, table| static_pixels_sampled(lay, table, static_samples)
+
+	## Static raster with n x n samples per edge pixel (n = 1: one sample at
+	## each pixel center, no antialiasing). Adaptive supersampling: only pixels
+	## whose point-sampled neighbors differ are resampled, and their color is
+	## the mean of the samples while their kind stays the center's. Bumpers and
+	## the pixels beside them keep their point samples so the rings stay crisp.
+	static_pixels_sampled : Layout, Table.Layout, U64 -> List(U32)
+	static_pixels_sampled = |lay, table, n| {
+		var $sharp = List.with_capacity(lay.pw * lay.ph)
 		var $py = 0
 		while $py < lay.ph {
 			var $px = 0
 			while $px < lay.pw {
-				$buf = $buf.append(static_at(lay, table, $px, $py))
+				$sharp = $sharp.append(static_at(lay, table, world_of(lay, $px, $py)))
 				$px = $px + 1
 			}
 			$py = $py + 1
 		}
-		$buf
+		if n <= 1 {
+			$sharp
+		} else {
+			$sharp.map_with_index(
+				|p, i| {
+					px = i % lay.pw
+					py = i // lay.pw
+					if is_edge($sharp, lay, px, py) and !near_bumper($sharp, lay, px, py) px_of(kind_of(p), supersample(lay, table, px, py, n)) else p
+				},
+			)
+		}
 	}
 
 	## Compose the full screen as cells for one frame. `from_base` is the
@@ -258,9 +277,103 @@ mix = |a, b, t| {
 world_of : Render.Layout, U64, U64 -> { x : F64, y : F64 }
 world_of = |lay, px, py| { x: (px.to_f64() + 0.5) / lay.s, y: (py.to_f64() + 0.5) / lay.s }
 
-static_at : Render.Layout, Table.Layout, U64, U64 -> U32
-static_at = |lay, table, px, py| {
-	p = world_of(lay, px, py)
+static_samples : U64
+static_samples = 4
+
+## Channel difference between neighboring point samples that counts as an
+## edge; smaller steps (background gradients) are left alone.
+edge_contrast : U32
+edge_contrast = 40
+
+## A pixel is an edge when a 4-neighbor has another kind or a clearly
+## different color in the point-sampled raster.
+is_edge : List(U32), Render.Layout, U64, U64 -> Bool
+is_edge = |sharp, lay, px, py| {
+	p = sharp.get(py * lay.pw + px) ?? 0
+	differs = |q| kind_of(q) != kind_of(p) or contrast(p, q) > edge_contrast
+	neighbor = |x, y| sharp.get(y * lay.pw + x) ?? p
+	(px > 0 and differs(neighbor(px - 1, py)))
+		or (px + 1 < lay.pw and differs(neighbor(px + 1, py)))
+			or (py > 0 and differs(neighbor(px, py - 1)))
+				or (py + 1 < lay.ph and differs(neighbor(px, py + 1)))
+}
+
+## Whether pixel (px, py) or a 4-neighbor is part of a bumper.
+near_bumper : List(U32), Render.Layout, U64, U64 -> Bool
+near_bumper = |sharp, lay, px, py| {
+	bumper = |x, y| kind_of(sharp.get(y * lay.pw + x) ?? 0) == kind_bumper
+	bumper(px, py)
+		or (px > 0 and bumper(px - 1, py))
+			or (px + 1 < lay.pw and bumper(px + 1, py))
+				or (py > 0 and bumper(px, py - 1))
+					or (py + 1 < lay.ph and bumper(px, py + 1))
+}
+
+## Largest per-channel difference between two pixels' colors.
+contrast : U32, U32 -> U32
+contrast = |a, b| {
+	ch = |c, shift| c.shr_zf_wrap(shift).bitwise_and(0xFF)
+	d = |shift| {
+		x = ch(a, shift)
+		y = ch(b, shift)
+		if x > y x - y else y - x
+	}
+	m = if d(16) > d(8) d(16) else d(8)
+	if m > d(0) m else d(0)
+}
+
+## Mean color of an n x n grid of samples spread over pixel (px, py).
+supersample : Render.Layout, Table.Layout, U64, U64, U64 -> U32
+supersample = |lay, table, px, py, n| {
+	var $r = 0.0
+	var $g = 0.0
+	var $b = 0.0
+	var $j = 0
+	while $j < n {
+		var $i = 0
+		while $i < n {
+			p = {
+				x: (px.to_f64() + ($i.to_f64() + 0.5) / n.to_f64()) / lay.s,
+				y: (py.to_f64() + ($j.to_f64() + 0.5) / n.to_f64()) / lay.s,
+			}
+			c = rgb_of(static_at(lay, table, p))
+			$r = $r + to_light(c.shr_zf_wrap(16))
+			$g = $g + to_light(c.shr_zf_wrap(8))
+			$b = $b + to_light(c)
+			$i = $i + 1
+		}
+		$j = $j + 1
+	}
+	count = (n * n).to_f64()
+	from_light($r / count).shl_wrap(16).bitwise_or(from_light($g / count).shl_wrap(8)).bitwise_or(from_light($b / count))
+}
+
+## Colors are blended in linear light (gamma 2.2) rather than on sRGB
+## values, so a thin bright line covering part of a pixel keeps its apparent
+## brightness.
+gamma : F64
+gamma = 2.2
+
+## One sRGB channel (low 8 bits of c) as light intensity in [0, 1].
+to_light : U32 -> F64
+to_light = |c| (c.bitwise_and(0xFF).to_f64() / 255.0).pow(gamma)
+
+## Inverse of to_light, rounded to an 8-bit channel.
+from_light : F64 -> U32
+from_light = |l| {
+	floor_u64(Physics.clamp(l, 0.0, 1.0).pow(1.0 / gamma) * 255.0 + 0.5).to_u32_wrap()
+}
+
+## Coverage blend of two colors: t = 1 gives b.
+blend : U32, U32, F64 -> U32
+blend = |a, b, t| {
+	ch = |shift| from_light(to_light(a.shr_zf_wrap(shift)) * (1.0 - t) + to_light(b.shr_zf_wrap(shift)) * t).shl_wrap(shift)
+	ch(16).bitwise_or(ch(8)).bitwise_or(ch(0))
+}
+
+## The static scene's pixel value (kind and color) at world point p.
+static_at : Render.Layout, Table.Layout, { x : F64, y : F64 } -> U32
+static_at = |lay, table, p| {
 	pal = table.palette
 	line = Physics.clamp(0.62 / lay.s, 0.45, 1.6)
 	in_bumper = table.bumpers.find_first(|b| Physics.length(Physics.sub(p, b.pos)) <= b.r)
@@ -363,7 +476,11 @@ cross = |p, a, b| (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y)
 
 # ---------- dynamic raster ----------
 
-## Paint pixels within `radius` (world units) of segment a-b (a capsule).
+## Paint a capsule (pixels within `radius` world units of segment a-b) with
+## coverage antialiasing: each pixel's covered share is estimated from its
+## center's distance to the edge over a one-pixel ramp, and its color is
+## blended toward `color` by that share. Pixels at least half covered take
+## the capsule's kind.
 paint_capsule : List(U32), Render.Layout, { x : F64, y : F64 }, { x : F64, y : F64 }, F64, U32 -> List(U32)
 paint_capsule = |buf, lay, a, b, radius, color| {
 	r = if radius * lay.s < 0.55 0.55 / lay.s else radius
@@ -377,8 +494,15 @@ paint_capsule = |buf, lay, a, b, radius, color| {
 		var $px = x0b
 		while $px <= x1 and $px < lay.pw {
 			p = world_of(lay, $px, $py)
-			if Physics.length(Physics.sub(p, Physics.closest_on_segment(p, a, b))) <= r {
-				$buf = $buf.set($py * lay.pw + $px, color) ?? $buf
+			d = Physics.length(Physics.sub(p, Physics.closest_on_segment(p, a, b)))
+			cover = Physics.clamp((r - d) * lay.s + 0.5, 0.0, 1.0)
+			idx = $py * lay.pw + $px
+			if cover >= 1.0 {
+				$buf = $buf.set(idx, color) ?? $buf
+			} else if cover > 0.0 {
+				under = $buf.get(idx) ?? 0
+				kind = if cover >= 0.5 kind_of(color) else kind_of(under)
+				$buf = $buf.set(idx, px_of(kind, blend(rgb_of(under), rgb_of(color), cover))) ?? $buf
 			}
 			$px = $px + 1
 		}
