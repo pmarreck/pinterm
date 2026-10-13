@@ -26,7 +26,7 @@
           hash = "sha256-ylBlhpFJaChMnNaSc+R/yvTLiDnjTH9Sz/HBr8CNU3k=";
         };
         buildTools = [ pkgs.zig_0_16 pkgs.binutils pkgs.bash pkgs.coreutils pkgs.gnused ];
-        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps pkgs.nodejs pkgs.chromium pkgs.git pkgs.b3sum printable-binary.packages.${system}.default ];
+        testTools = [ pkgs.util-linux pkgs.gawk pkgs.gnugrep pkgs.diffutils pkgs.findutils pkgs.procps pkgs.nodejs pkgs.chromium pkgs.git pkgs.b3sum printable-binary.packages.${system}.printableBinaryZig ];
         rocEnv = {
           PINTERM_ROC = "${rocToolchain}/bin/roc";
           PINTERM_ROC_SOURCE_DIR = "${rocToolchain.src}";
