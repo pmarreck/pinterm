@@ -4,3 +4,5 @@ checks.x86_64-linux.test
 packages.x86_64-linux.web
 checks.x86_64-linux.player
 checks.aarch64-darwin.test
+checks.x86_64-linux.windows
+packages.x86_64-linux.pinterm-aarch64-windows

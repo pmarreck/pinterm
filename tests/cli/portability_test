@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Every terminal host source compiles for macOS (arm64 and x86_64) with the same
-# warnings-as-errors flags as the Linux build, and names the OS it was built
-# for in --about. Cross-compiling with zig cc needs no Mac, and catches
-# Linux-only calls (pipe2, F_SETPIPE_SZ, clock_nanosleep) before a Mac build
-# does. Running on a Mac is outside this suite.
+# Every terminal host source compiles for macOS (arm64 and x86_64) and Windows
+# (x86_64 and arm64) with the same warnings-as-errors flags as the Linux
+# build, and names the OS it was built for in --about. Cross-compiling with
+# zig cc needs no Mac or Windows machine, and catches calls that exist on only
+# one OS before a native build does. Running the binaries is tested elsewhere
+# (tests/platform/suite on a Mac and under Wine).
 set -u
 SUITE=portability
 . "$(dirname "$0")/../lib/harness.sh"
@@ -22,6 +23,19 @@ for target in aarch64-macos x86_64-macos; do
 	check "$target --about names macos" grep -aq "macos" "$dir/platform_posix-$target.o"
 	# The macOS object carries the real CoreAudio backend, not the stub.
 	check "$target audio uses CoreAudio's AudioQueue" grep -aq "AudioQueueNewOutput" "$dir/audio_coreaudio-$target.o"
+done
+
+for target in x86_64-windows-gnu aarch64-windows-gnu; do
+	for src in "$root"/host/*.c; do
+		name="$(basename "$src" .c)"
+		capture zig cc -target "$target" -Wall -Wextra -Werror -std=c11 \
+			-I"$root/platform" -c "$src" -o "$dir/$name-$target.o"
+		check "host/$name.c compiles for $target" [ "$rc" -eq 0 ]
+		check "host/$name.c compiles for $target without diagnostics" [ -z "$err" ]
+	done
+	check "$target --about names windows" grep -aq "windows" "$dir/platform_win32-$target.o"
+	check "$target audio uses waveOut" grep -aq "waveOutOpen" "$dir/platform_win32-$target.o"
+	check "$target defaults to truecolor in VT consoles" grep -aq "plat_console_truecolor" "$dir/platform_win32-$target.o"
 done
 
 # The Roc ABI shim (allocator, hosted-function glue) compiles for every

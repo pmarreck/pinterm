@@ -16,7 +16,10 @@ check "-h matches --help" grep -q "Usage: pinterm" <<<"$out"
 
 capture "$bin" --about
 check "--about one line" [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ]
+# The OS the binary is for: this machine, unless it runs under an emulator
+# such as Wine (PINTERM_EXPECT_OS=windows).
 case "$(uname -s)" in Darwin) host_os=macos ;; *) host_os=linux ;; esac
+host_os="${PINTERM_EXPECT_OS:-$host_os}"
 check "--about names this platform ($host_os)" grep -Eq "$host_os (x86_64|aarch64)" <<<"$out"
 
 capture "$bin" --bogus

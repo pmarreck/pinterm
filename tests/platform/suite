@@ -5,6 +5,8 @@
 # Linux reference replay. Suites that need the Roc compiler, zig or a browser
 # run in the Linux ./test, not here.
 # Usage: PINTERM_BIN=... PINTERM_REFERENCE=... tests/platform/suite
+# PINTERM_SKIP_SUITES lists suites that cannot run on this platform (for
+# example the pseudo-terminal suite under Wine); each is reported as skipped.
 set -u
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 : "${PINTERM_BIN:?}" "${PINTERM_REFERENCE:?}"
@@ -13,9 +15,15 @@ unset PINTERM_SCORES
 work="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-platform.XXXXXX")"
 export XDG_DATA_HOME="$work/xdg-data"
 failed=()
+skipped=()
 for t in tests/cli/cli_test tests/cli/scores_test tests/integration/replay_test \
 	tests/integration/audio_test tests/integration/score_file_test \
 	tests/integration/terminal_test tests/platform/differential_test; do
+	if [[ " ${PINTERM_SKIP_SUITES:-} " == *" $t "* ]]; then
+		printf '\033[33m==> skipped\033[0m %s (not runnable on this platform)\n' "$t"
+		skipped+=("$t")
+		continue
+	fi
 	printf '\033[36m==>\033[0m %s\n' "$t"
 	"$root/$t" || failed+=("$t")
 done
@@ -24,4 +32,4 @@ if [ ${#failed[@]} -gt 0 ]; then
 	printf '\033[31mFAILED:\033[0m %s\n' "${failed[@]}"
 	exit 1
 fi
-printf '\033[32mall platform tests passed\033[0m (%s)\n' "$("$PINTERM_BIN" --about)"
+printf '\033[32mall platform tests passed\033[0m (%s)%s\n' "$("$PINTERM_BIN" --about)" "${skipped[*]:+; skipped: ${skipped[*]}}"

@@ -9,12 +9,12 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 capture "$root/build" --help
 check "help exits 0" [ "$rc" -eq 0 ]
 check "help documents --target" grep -q -- "--target" <<<"$out"
-for t in x86_64-linux aarch64-linux aarch64-macos; do
+for t in x86_64-linux aarch64-linux aarch64-macos x86_64-windows aarch64-windows; do
 	check "help lists target $t" grep -q -- "$t" <<<"$out"
 done
 
 dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-build-args.XXXXXX")"
-for t in x86_64-windows aarch64 macos ""; do
+for t in x86_64-freebsd aarch64 windows ""; do
 	capture "$root/build" --target "$t" --out "$dir/out"
 	check "target '$t' rejected with usage status" [ "$rc" -eq 2 ]
 	check "target '$t' rejection names the target" grep -q "unknown target" <<<"$err"

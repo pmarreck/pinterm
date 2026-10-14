@@ -48,6 +48,7 @@ const char *plat_os_name(void) {
 }
 
 long plat_pid(void) { return (long)getpid(); }
+bool plat_console_truecolor(void) { return false; }
 
 /* ---------- terminal ---------- */
 

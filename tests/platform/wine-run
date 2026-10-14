@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Run a Windows build under Wine as if it were a native command, for
+# tests/platform/suite: PINTERM_BIN=tests/platform/wine-run with
+# PINTERM_WINDOWS_EXE naming the .exe. Arguments, stdin, stdout, stderr and
+# the exit status pass through. Wine's own diagnostics are silenced.
+exe="${PINTERM_WINDOWS_EXE:?set PINTERM_WINDOWS_EXE to pinterm.exe}"
+export WINEDEBUG=-all
+exec wine "$exe" "$@"

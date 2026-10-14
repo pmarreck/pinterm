@@ -369,7 +369,7 @@ static void usage(FILE *out) {
 static FILE *open_out(const char *path) {
 	if (strcmp(path, "-") == 0 || strcmp(path, "@stdout") == 0) return stdout;
 	if (strcmp(path, "@stderr") == 0) return stderr;
-	FILE *f = fopen(path, "w");
+	FILE *f = fopen(path, "wb"); /* byte for byte, also on Windows */
 	if (!f) fprintf(stderr, "pinterm: cannot write %s: %s\n", path, strerror(errno));
 	return f;
 }
@@ -504,6 +504,7 @@ static int color_from_env(void) {
 		strstr(term, "foot") || strstr(term, "alacritty") || strstr(term, "direct"))) return COLOR_TRUE;
 	if (term && strstr(term, "256color")) return COLOR_256;
 	if (term && !strcmp(term, "dumb")) return COLOR_MONO;
+	if (!term && plat_console_truecolor()) return COLOR_TRUE;
 	return COLOR_16;
 }
 

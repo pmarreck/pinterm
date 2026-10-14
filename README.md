@@ -22,9 +22,12 @@ With [Nix](https://nixos.org/) (flakes enabled):
 ./bin/pinterm    # play (builds first if needed)
 ```
 
-The Roc compiler builds only on Linux, so the macOS binary is cross-compiled
-there: `./build --target aarch64-macos` writes `out/aarch64-macos/release/bin/pinterm`
-(copy it to the Mac).
+The Roc compiler builds only on Linux, so the macOS and Windows binaries are
+cross-compiled there: `./build --target aarch64-macos` writes
+`out/aarch64-macos/release/bin/pinterm`, and `--target x86_64-windows` or
+`--target aarch64-windows` write `out/<target>/release/bin/pinterm.exe`. Copy
+the file to that machine. On Windows, run it in Windows Terminal or any console
+with VT support (Windows 10 1809 or later).
 
 or `nix run github:pmarreck/pinterm`.
 
@@ -161,7 +164,8 @@ replay options used by the tests.
   (PulseAudio) or `aplay` (ALSA). The Nix package also brings its own
   `paplay` as a last resort, so systems that run a PulseAudio server without
   client tools (such as WSLg on Windows) still get sound. On macOS the host
-  plays through CoreAudio instead, in-process. With no player and no server,
+  plays through CoreAudio instead, and on Windows through waveOut, both
+  in-process. With no player and no server,
   the game is silent.
   pinterm never changes system audio settings.
 - **Cleanup.** The terminal is restored after a normal quit, Ctrl-C, SIGTERM,
@@ -176,13 +180,15 @@ replay options used by the tests.
 | Linux aarch64 | build script supports it; not yet verified |
 | macOS aarch64 | cross-compiled from Linux with `./build --target aarch64-macos`; CI runs the binary-level tests on an Apple Silicon Mac and requires its replays to match the Linux build byte for byte. Building on a Mac waits on the pinned Roc compiler's Nix package, which is marked broken on Darwin |
 | macOS x86_64 | the `x64mac` Roc target links and headless runs work under Rosetta; not built by `./build` or CI |
-| Windows x86_64 / aarch64 | not yet supported: the terminal host is POSIX-only |
+| Windows x86_64 | cross-compiled from Linux with `./build --target x86_64-windows`; CI runs the binary-level tests under Wine (not the pseudo-terminal sessions) and requires its replays to match the Linux build byte for byte. Interactive play in a real Windows console not yet verified |
+| Windows aarch64 | cross-compiled from the same source, and CI builds it on every push; nothing runs it yet |
 
 ## How it works
 
 ```text
-host/pinterm.c        terminal raw mode, frame clock, input bytes, audio player pipe
-host/audio_*.c        macOS CoreAudio queue fed from that pipe
+host/pinterm.c        CLI, frame clock, headless replay, score files (portable)
+host/platform_*.c     terminal raw mode, input, signals, audio: POSIX and Windows
+host/audio_*.c        CoreAudio queue (macOS) and sample ring (Windows waveOut)
    │  ▲  (tick packet: clock, size, flags, raw input bytes)
    ▼  │  (frame bytes, PCM samples, event log lines)
 platform/             Roc platform: hosted functions and allocator shim
@@ -252,10 +258,12 @@ in headless Chromium and plays it with real keyboard events.
 Continuous integration runs on Mechatron Prime CI, a self-hosted Nix build
 service. For every push it builds the Linux and web packages, runs `./test`
 (`checks.x86_64-linux.test`), and runs `tests/platform/suite` on a Mac against
-the cross-compiled macOS binary (`checks.aarch64-darwin.test`). That suite
-runs every test of the finished binary, including the pseudo-terminal
-sessions, and a differential that requires the macOS build to reproduce the
-Linux build's event log, frames and audio exactly.
+the cross-compiled macOS binary (`checks.aarch64-darwin.test`) and under Wine
+against the Windows x86_64 binary (`checks.x86_64-linux.windows`). That suite
+runs every test of the finished binary (the pseudo-terminal sessions only on
+the Mac) and a differential that requires each build to reproduce the Linux
+build's event log, frames and audio exactly. The Windows arm64 binary is built
+on every push but not run.
 
 The tests check that the game works. Whether it is fun to play and the sound
 is pleasant still takes a human player.

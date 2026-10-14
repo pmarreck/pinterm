@@ -14,6 +14,9 @@
 void plat_init(void);
 /* "linux", "macos" or "windows". */
 const char *plat_os_name(void);
+/* Whether the terminal can be assumed to show 24-bit color when the
+ * environment does not say (every VT-capable Windows console can). */
+bool plat_console_truecolor(void);
 long plat_pid(void);
 
 /* ----- terminal ----- */

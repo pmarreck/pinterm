@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build the optimized native pinterm game: Roc core archive + C terminal/audio host.
 # Usage: ./build [--target TARGET] [--out DIR] [--debug] [--check-only]
-# TARGET: x86_64-linux, aarch64-linux or aarch64-macos (default: this machine).
-# Outputs: DIR/release/bin/pinterm (or DIR/debug/bin/pinterm with --debug).
+# TARGET: x86_64-linux, aarch64-linux, aarch64-macos, x86_64-windows or
+#         aarch64-windows (default: this machine).
+# Outputs: DIR/release/bin/pinterm (pinterm.exe on Windows; debug/ with --debug).
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -19,7 +20,7 @@ while [ $# -gt 0 ]; do
 		--debug) profile=debug; shift ;;
 		--test) shift ;; # tests use the same optimized artifact
 		--check-only) check_only=1; shift ;;
-		-h|--help) sed -n '2,5p' "$0"; exit 0 ;;
+		-h|--help) sed -n '2,6p' "$0"; exit 0 ;;
 		*) usage_error "unknown argument: $1" ;;
 	esac
 done
@@ -35,12 +36,18 @@ else
 	native=0
 fi
 # Roc archive target, host object target, final link target, link flags.
-# Linux links statically against musl; macOS cannot link statically.
+# Linux links statically against musl; macOS cannot link statically; Windows
+# links against MinGW with winmm for waveOut audio.
+host_lib=libhost.a host_flags="-fPIC -fvisibility=hidden" libs=-lm exe=pinterm
 case "$target" in
 	x86_64-linux) roc_target=x64v1glibc host_cc_target=x86_64-linux-gnu zig_target=x86_64-linux-musl link_static=-static ;;
 	aarch64-linux) roc_target=arm64glibc host_cc_target=aarch64-linux-gnu zig_target=aarch64-linux-musl link_static=-static ;;
 	aarch64-macos) roc_target=arm64mac host_cc_target=aarch64-macos zig_target=aarch64-macos link_static= ;;
-	*) usage_error "unknown target '$target' (expected x86_64-linux, aarch64-linux or aarch64-macos)" ;;
+	x86_64-windows | aarch64-windows)
+		roc_target="$( [ "${target%%-*}" = x86_64 ] && echo x64win || echo arm64win )"
+		host_cc_target="${target}-gnu" zig_target="${target}-gnu" link_static=-static
+		host_lib=host.lib host_flags= libs=-lwinmm exe=pinterm.exe ;;
+	*) usage_error "unknown target '$target' (expected x86_64-linux, aarch64-linux, aarch64-macos, x86_64-windows or aarch64-windows)" ;;
 esac
 arch="${target%%-*}" os="${target#*-}"
 
@@ -75,22 +82,22 @@ fi
 warn="-Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE"
 
 # shellcheck disable=SC2086
-zig cc -target "$host_cc_target" -mcpu=baseline $warn $copt -fPIC -fvisibility=hidden \
+zig cc -target "$host_cc_target" -mcpu=baseline $warn $copt $host_flags \
 	-c "$work/platform/host.c" -o "$work/platform/host.o"
-ar rcs "$work/platform/targets/$roc_target/libhost.a" "$work/platform/host.o"
+zig ar rcs "$work/platform/targets/$roc_target/$host_lib" "$work/platform/host.o"
 "$PINTERM_ROC" build "$work/src/main.roc" $ropt --target="$roc_target" \
 	--jobs="$jobs" --no-cache --output="$work/libpinterm.a"
 
 # shellcheck disable=SC2086
 zig cc -target "$zig_target" -mcpu=baseline $warn $copt $link_static \
 	-I"$work/platform" -I"$root/host" \
-	"$root"/host/*.c "$work/libpinterm.a" -lm -o "$out/$profile/bin/pinterm"
-echo "built $out/$profile/bin/pinterm" >&2
+	"$root"/host/*.c "$work/libpinterm.a" $libs -o "$out/$profile/bin/$exe"
+echo "built $out/$profile/bin/$exe" >&2
 
 # Publish the platform entrypoint (only for the default output tree, after success).
 if [ "$out" = "$default_out" ]; then
 	mkdir -p "$root/bin/$os/$arch"
 	rel="${out#"$root/"}"
-	ln -sfn "../../../$rel/$profile/bin/pinterm" "$root/bin/$os/$arch/pinterm"
-	echo "published bin/$os/$arch/pinterm -> $rel/$profile/bin/pinterm" >&2
+	ln -sfn "../../../$rel/$profile/bin/$exe" "$root/bin/$os/$arch/$exe"
+	echo "published bin/$os/$arch/$exe -> $rel/$profile/bin/$exe" >&2
 fi

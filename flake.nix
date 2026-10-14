@@ -67,10 +67,11 @@
             mainProgram = "pinterm";
           };
         } // rocEnv);
-        # macOS arm64 build, cross-compiled here: the Roc compiler only builds on
-        # Linux. checks.aarch64-darwin.test runs it on a Mac.
-        pintermMacos = pkgs.stdenvNoCC.mkDerivation ({
-          pname = "pinterm-aarch64-macos";
+        # Builds for other operating systems, cross-compiled here because the
+        # Roc compiler only builds on Linux. The Darwin and Windows checks run
+        # them (on a Mac, and under Wine).
+        crossBuild = { target, exe, description }: pkgs.stdenvNoCC.mkDerivation ({
+          pname = "pinterm-${target}";
           version = "0.1.0";
           inherit src;
           nativeBuildInputs = buildTools ++ [ rocToolchain ];
@@ -78,17 +79,20 @@
             export HOME=$TMPDIR
             export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
             export ROC_CACHE_DIR=$TMPDIR/roc-cache
-            bash ./build --target aarch64-macos --out "$PWD/out"
+            bash ./build --target ${target} --out "$PWD/out"
           '';
           installPhase = ''
             mkdir -p $out/bin $out/share/licenses/pinterm
-            install -m755 out/release/bin/pinterm $out/bin/pinterm
+            install -m755 out/release/bin/${exe} $out/bin/${exe}
             install -m644 LICENSE $out/share/licenses/pinterm/LICENSE
             install -m644 ${rocToolchain.src}/LICENSE $out/share/licenses/pinterm/Roc-UPL
           '';
-          dontFixup = true; # a Mach-O binary: nothing for the Linux fixup hooks to do
-          meta.description = "pinterm for macOS on Apple silicon";
+          dontFixup = true; # Mach-O or PE binaries: nothing for the Linux fixup hooks to do
+          meta.description = description;
         } // rocEnv);
+        pintermMacos = crossBuild { target = "aarch64-macos"; exe = "pinterm"; description = "pinterm for macOS on Apple silicon"; };
+        pintermWindows = crossBuild { target = "x86_64-windows"; exe = "pinterm.exe"; description = "pinterm for Windows on x86_64"; };
+        pintermWindowsArm = crossBuild { target = "aarch64-windows"; exe = "pinterm.exe"; description = "pinterm for Windows on arm64 (built, not run in CI)"; };
         # The Linux build's replay of fixed sessions; every other platform's
         # build must reproduce it byte for byte (tests/platform/differential_test).
         replayReference = pkgs.runCommand "pinterm-replay-reference" { nativeBuildInputs = [ pkgs.gawk ]; } ''
@@ -118,6 +122,8 @@
           inherit web;
           roc = rocToolchain;
           pinterm-aarch64-macos = pintermMacos;
+          pinterm-x86_64-windows = pintermWindows;
+          pinterm-aarch64-windows = pintermWindowsArm;
           replay-reference = replayReference;
         };
 
@@ -145,6 +151,33 @@
           };
         } // pkgs.lib.optionalAttrs rocSupported {
           build = pinterm;
+          # The Windows x86_64 build under Wine: every suite that tests the
+          # finished binary except the pseudo-terminal one (Wine has no real
+          # Windows console behind a pty), plus the differential against the
+          # Linux replay.
+          windows = pkgs.stdenvNoCC.mkDerivation {
+            pname = "pinterm-windows-test";
+            version = "0.1.0";
+            inherit src;
+            nativeBuildInputs = [ pkgs.wineWow64Packages.minimal pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.gnused pkgs.diffutils pkgs.findutils pkgs.b3sum pkgs.zig_0_16 printable-binary.packages.${system}.printableBinaryZig ];
+            PINTERM_WINDOWS_EXE = "${pintermWindows}/bin/pinterm.exe";
+            PINTERM_REFERENCE = "${replayReference}";
+            PINTERM_PRINTABLE_BINARY_SRC = "${printable-binary}";
+            PINTERM_EXPECT_OS = "windows";
+            PINTERM_SKIP_SUITES = "tests/integration/terminal_test";
+            buildPhase = ''
+              export HOME=$TMPDIR WINEPREFIX=$TMPDIR/wine WINEDEBUG=-all
+              patchShebangs tests
+              # One persistent server for all the test runs; started before
+              # wineboot, since -p fails once a server is already running.
+              mkdir -p "$WINEPREFIX"
+              wineserver -p 60
+              wineboot -i >/dev/null 2>&1
+              PINTERM_BIN=$PWD/tests/platform/wine-run tests/platform/suite
+              wineserver -k || true
+            '';
+            installPhase = "mkdir -p $out && echo passed > $out/result";
+          };
           # The installed command can always find an audio player.
           player = pkgs.runCommand "pinterm-player-check" { } ''
             grep -qF "${pkgs.pulseaudio}/bin" ${pinterm}/bin/pinterm

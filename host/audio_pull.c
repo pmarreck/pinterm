@@ -1,4 +1,6 @@
-/* Pipe-to-callback audio reader for in-process players (CoreAudio). */
+/* Pipe-to-callback audio reader for in-process players (CoreAudio). POSIX
+ * only: the Windows host queues samples in an AudioRing instead. */
+#if !defined(_WIN32)
 #include "audio_pull.h"
 #include <errno.h>
 #include <string.h>
@@ -38,3 +40,4 @@ size_t audio_pull(int fd, uint8_t *out, size_t want, size_t cap) {
 	memset(out + got, 0, want - got);
 	return got;
 }
+#endif
