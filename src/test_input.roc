@@ -37,3 +37,7 @@ expect Input.parse(Str.to_utf8("\u(1b)[47:63;1:3u")) == [Release(RightFlip)]
 expect Input.parse(['[', ']']) == [Press(PrevTable), Press(NextTable)]
 expect Input.parse(Str.to_utf8("\u(1b)[91u\u(1b)[93;1:3u")) == [Press(PrevTable), Release(NextTable)]
 expect Input.parse(Str.to_utf8("\u(1b)[5~\u(1b)[6~")) == [Press(PrevTable), Press(NextTable)]
+
+# Every sequence the Windows host (host/win_keys.c) sends for the keys the
+# game holds: plain first press, kitty repeat, kitty release.
+expect Input.parse(Str.to_utf8("z\u(1b)[122;1:2u\u(1b)[122;1:3u/\u(1b)[47;1:3u \u(1b)[32;1:3u\u(1b)[D\u(1b)[1;1:2D\u(1b)[1;1:3D\u(1b)[C\u(1b)[1;1:3C\u(1b)[B\u(1b)[1;1:3B")) == [Press(LeftFlip), Press(LeftFlip), Release(LeftFlip), Press(RightFlip), Release(RightFlip), Press(Plunger), Release(Plunger), Press(LeftFlip), Press(LeftFlip), Release(LeftFlip), Press(RightFlip), Release(RightFlip), Press(Plunger), Release(Plunger)]

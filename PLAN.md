@@ -4,9 +4,7 @@ Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for o
 
 ## Platforms
 
-- [ ] Confirm Mechatron Prime CI is green for 8402574 (Windows host and Wine check). (context: docs/plan_context/windows.md)
 - [ ] Windows: interactive play in a real Windows console (display, keys, sound, resize, cleanup); needs a person on a Windows machine. (context: docs/plan_context/windows.md)
-- [ ] Windows: report key releases from console input records for every game key, making flipper holds exact. (context: docs/plan_context/windows.md)
 - [ ] Windows: open score files through wide-character paths so non-ASCII profile paths work. (context: docs/plan_context/windows.md)
 - [ ] Windows arm64: run the build on an arm64 Windows machine when one is available.
 
@@ -17,6 +15,7 @@ Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for o
 
 ## Maintenance
 
+- [ ] CI cost: make checks.test test packages.default and packages.web instead of rebuilding both (two fewer Roc compiles per commit, promised to mechatron-prime).
 - [ ] When the roc pin is next bumped past b774e6f271, decide whether to keep tools/roc-glue (still harmless) or drop it.
 - [ ] Consider stripping the release binary (3.2 MB with debug info).
 - [ ] Improve the shared writing-roc skill only with reproduced, version-labeled new lessons (separate commit, skill-creator, shared-skill tests).
@@ -30,8 +29,6 @@ Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for o
 ## Recently completed
 
 - [x] Unreproduced 2026-10-08 glue flake: same error as the roc glue cache race fixed in tools/roc-glue on 2026-10-12. (done 2026-10-14 14:40 EDT)
-- [x] CI race in roc glue fixed with a private cache per run; tests/cli/glue_test checks it. (done 2026-10-12 15:00 EDT)
-- [x] Coverage antialiasing in linear light, bumpers crisp (678c0de). (done 2026-10-13 09:10 EDT)
 - [x] NixOS-WSL build fixed by depending only on printableBinaryZig (7795d42). (done 2026-10-13 11:55 EDT)
 - [x] macOS host portability and arm64mac/x64mac targets; --about names the OS (3078199). (done 2026-10-13 22:05 EDT)
 - [x] macOS audio through CoreAudio (45e5ad7); listened to on a Mac 2026-10-14. (done 2026-10-14 10:18 EDT)
@@ -39,3 +36,5 @@ Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for o
 - [x] macOS in CI: Linux cross-build tested on a Mac with a byte-for-byte differential (a419825). (done 2026-10-14 10:15 EDT)
 - [x] Lane change rotates on every tap without key-release reports; autorepeat takes it back (0013db6). (done 2026-10-14 11:10 EDT)
 - [x] Windows x86_64 and arm64 builds, host split behind host/platform.h, Wine check in CI (999efaa, 8402574). (done 2026-10-14 14:10 EDT)
+- [x] Mechatron Prime CI green for 8402574 (Windows host, Wine check, arm64 build), 2371 s. (done 2026-10-14 15:56 EDT)
+- [x] Windows reports key releases (kitty repeat and release events from console input records via host/win_keys.c; focus loss releases held keys), so flipper holds are exact there. (done 2026-10-14 16:20 EDT)

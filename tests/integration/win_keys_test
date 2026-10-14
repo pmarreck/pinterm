@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Builds and runs the C unit test for host/win_keys.c, which turns Windows
+# console key records into the bytes the game's input decoder reads.
+set -u
+SUITE=win-keys
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-win-keys.XXXXXX")"
+export ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$dir/zig-cache}" ZIG_LOCAL_CACHE_DIR="$dir/zig-local"
+
+capture zig cc -Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE -I"$root/host" \
+	"$root/tests/unit/win_keys_test.c" "$root/host/win_keys.c" -o "$dir/win_keys_test"
+check "unit test builds" [ "$rc" -eq 0 ]
+check "unit test builds without diagnostics" [ -z "$err" ]
+capture "$dir/win_keys_test"
+check "unit test passes" [ "$rc" -eq 0 ]
+check "unit test reports no failures" grep -q "^0 failures$" <<<"$out"
+[ "$rc" -eq 0 ] || printf '%s\n' "$out" | grep FAIL >&2
+
+command rm -rf -- "$dir"
+finish

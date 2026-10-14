@@ -1,14 +1,16 @@
 /* Windows implementation of host/platform.h: a VT-mode console (Windows 10
- * 1809 or later, Windows Terminal, conhost or any ConPTY client) with raw key
- * input read as console input records, QueryPerformanceCounter frame pacing,
- * console control and crash handlers that restore the console, and in-process
- * waveOut audio fed from an AudioRing on a device-event thread. */
+ * 1809 or later, Windows Terminal, conhost or any ConPTY client) with keys read
+ * as console input records and reported with releases (see win_keys.h),
+ * QueryPerformanceCounter frame pacing, console control and crash handlers
+ * that restore the console, and in-process waveOut audio fed from an AudioRing
+ * on a device-event thread. */
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
 #include "audio_ring.h"
 #include "platform.h"
+#include "win_keys.h"
 #include <direct.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -22,9 +24,6 @@
 #endif
 #ifndef DISABLE_NEWLINE_AUTO_RETURN
 #define DISABLE_NEWLINE_AUTO_RETURN 0x0008
-#endif
-#ifndef ENABLE_VIRTUAL_TERMINAL_INPUT
-#define ENABLE_VIRTUAL_TERMINAL_INPUT 0x0200
 #endif
 
 /* waveOut: three 512-sample buffers (about 23 ms each at 22050 Hz) in
@@ -40,6 +39,7 @@ static struct {
 	size_t leave_length;
 	int cols, rows; /* last size seen, to notice window resizes */
 	WCHAR high_surrogate;
+	WinKeys keys; /* held keys, for kitty-style repeat and release reports */
 	LARGE_INTEGER frequency;
 	/* audio */
 	HWAVEOUT wave;
@@ -117,10 +117,11 @@ int plat_term_enter(const char *enter, size_t enter_length) {
 		return -1;
 	}
 	/* No line editing, echo or Ctrl-C processing (Ctrl-C arrives as 0x03, as
-	   in a raw POSIX terminal); keys as VT sequences; resize events; and
-	   ENABLE_EXTENDED_FLAGS without quick-edit so a stray click cannot
-	   freeze the game by starting a selection. */
-	SetConsoleMode(ws.in, ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS);
+	   in a raw POSIX terminal). Keys are read as raw records and translated by
+	   host/win_keys.c, which needs each key's release. Window and focus
+	   events on; ENABLE_EXTENDED_FLAGS without quick-edit so a stray click
+	   cannot freeze the game by starting a selection. */
+	SetConsoleMode(ws.in, ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS);
 	SetConsoleCP(CP_UTF8);
 	SetConsoleOutputCP(CP_UTF8);
 	timeBeginPeriod(1);
@@ -141,40 +142,28 @@ void plat_term_size(int *cols, int *rows) {
 	}
 }
 
-/* One UTF-16 code unit from a key event, as UTF-8 (pairing surrogates). */
-static size_t utf8_from_utf16(WCHAR c, uint8_t out[4]) {
-	uint32_t cp;
+/* A key event's UTF-16 code unit as a code point: surrogate pairs arrive as
+   two records, so the high half is held until the low half; 0 for none. */
+static uint32_t codepoint_from_utf16(WCHAR c) {
 	if (c >= 0xD800 && c < 0xDC00) {
 		ws.high_surrogate = c;
 		return 0;
 	}
 	if (c >= 0xDC00 && c < 0xE000) {
 		if (!ws.high_surrogate) return 0;
-		cp = 0x10000 + (((uint32_t)ws.high_surrogate - 0xD800) << 10) + ((uint32_t)c - 0xDC00);
+		uint32_t cp = 0x10000 + (((uint32_t)ws.high_surrogate - 0xD800) << 10) + ((uint32_t)c - 0xDC00);
 		ws.high_surrogate = 0;
-	} else {
-		cp = c;
+		return cp;
 	}
-	if (cp < 0x80) {
-		out[0] = (uint8_t)cp;
-		return 1;
-	}
-	if (cp < 0x800) {
-		out[0] = (uint8_t)(0xC0 | (cp >> 6));
-		out[1] = (uint8_t)(0x80 | (cp & 0x3F));
-		return 2;
-	}
-	if (cp < 0x10000) {
-		out[0] = (uint8_t)(0xE0 | (cp >> 12));
-		out[1] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F));
-		out[2] = (uint8_t)(0x80 | (cp & 0x3F));
-		return 3;
-	}
-	out[0] = (uint8_t)(0xF0 | (cp >> 18));
-	out[1] = (uint8_t)(0x80 | ((cp >> 12) & 0x3F));
-	out[2] = (uint8_t)(0x80 | ((cp >> 6) & 0x3F));
-	out[3] = (uint8_t)(0x80 | (cp & 0x3F));
-	return 4;
+	return c;
+}
+
+/* Append bytes if they fit whole; false once the packet is full. */
+static bool put(uint8_t *buf, size_t capacity, size_t *n, const uint8_t *bytes, size_t length) {
+	if (*n + length > capacity) return false;
+	memcpy(buf + *n, bytes, length);
+	*n += length;
+	return true;
 }
 
 size_t plat_term_read(uint8_t *buf, size_t capacity) {
@@ -190,24 +179,34 @@ size_t plat_term_read(uint8_t *buf, size_t capacity) {
 	for (;;) {
 		DWORD pending = 0;
 		if (!GetNumberOfConsoleInputEvents(ws.in, &pending) || !pending) break;
+		/* Read only what is sure to fit; one key record needs at most
+		   WIN_KEYS_MAX_BYTES and focus loss at most a few releases. */
+		DWORD room = (DWORD)((capacity - n) / (WIN_KEYS_MAX_BYTES * 4));
+		if (!room) break;
 		INPUT_RECORD records[64];
-		DWORD got = 0;
-		if (!ReadConsoleInputW(ws.in, records, pending < 64 ? pending : 64, &got) || !got) break;
+		DWORD want = pending < room ? pending : room, got = 0;
+		if (want > 64) want = 64;
+		if (!ReadConsoleInputW(ws.in, records, want, &got) || !got) break;
 		for (DWORD i = 0; i < got; i++) {
+			uint8_t bytes[WIN_KEYS_MAX_BYTES * 4];
+			size_t len = 0;
 			if (records[i].EventType == WINDOW_BUFFER_SIZE_EVENT) {
 				InterlockedExchange(&resized, 1);
-				continue;
+			} else if (records[i].EventType == FOCUS_EVENT) {
+				if (!records[i].Event.FocusEvent.bSetFocus) len = win_keys_focus_lost(&ws.keys, bytes, sizeof bytes);
+			} else if (records[i].EventType == KEY_EVENT) {
+				KEY_EVENT_RECORD *k = &records[i].Event.KeyEvent;
+				WCHAR unit = k->uChar.UnicodeChar;
+				if (unit >= 0xD800 && unit < 0xDC00) {
+					codepoint_from_utf16(unit); /* wait for the low half */
+					continue;
+				}
+				uint32_t cp = codepoint_from_utf16(unit);
+				WORD repeats = k->bKeyDown && k->wRepeatCount > 1 ? k->wRepeatCount : 1;
+				for (WORD r = 0; r < repeats && r < 4; r++)
+					len += win_key_event(&ws.keys, k->wVirtualKeyCode, k->bKeyDown != 0, cp, bytes + len);
 			}
-			if (records[i].EventType != KEY_EVENT) continue;
-			KEY_EVENT_RECORD *k = &records[i].Event.KeyEvent;
-			if (!k->bKeyDown || !k->uChar.UnicodeChar) continue;
-			uint8_t utf8[4];
-			size_t len = utf8_from_utf16(k->uChar.UnicodeChar, utf8);
-			for (WORD r = 0; r < (k->wRepeatCount ? k->wRepeatCount : 1); r++) {
-				if (n + len > capacity) return n;
-				memcpy(buf + n, utf8, len);
-				n += len;
-			}
+			if (len && !put(buf, capacity, &n, bytes, len)) return n;
 		}
 	}
 	return n;

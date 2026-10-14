@@ -14,6 +14,13 @@ Requested 2026-10-14: Windows builds in CI, x86_64 first, arm64 wanted too.
   the pseudo-terminal suite skipped and reported, including the byte-for-byte
   differential against the Linux replay; the arm64 package is built only.
 
+- Key releases (2026-10-14): the host reads raw console key records and
+  `host/win_keys.c` reports a key's first press as plain bytes, autorepeat of
+  a game key (z, /, Space, Left, Right, Down) as a kitty repeat event, and its
+  release as a kitty release event; losing focus releases held keys. It must
+  report releases for every key the game holds, or once `exact_keys` is set
+  the core would treat a key without releases as held forever.
+
 ## Porting facts (from the 2026-10-14 spike)
 
 - The Roc core for x64win built in 17m47s at `--opt=speed` and links with
@@ -30,10 +37,6 @@ Requested 2026-10-14: Windows builds in CI, x86_64 first, arm64 wanted too.
 
 - Interactive play in a real Windows console has not been tried (display,
   keys, waveOut sound, resize, cleanup on q, Ctrl-C and closing the tab).
-- Key releases: console input records carry key-up events, so the host could
-  report releases (as kitty CSI-u sequences) and make flipper holds exact.
-  It must then report releases for every game key, or the core would treat
-  keys without releases as held forever once `exact_keys` is set.
 - Paths: `fopen` takes the ANSI code page, so a score file under a
   non-ASCII user profile path would fail.
 - Nothing runs the arm64 build; that needs an arm64 Windows machine.
