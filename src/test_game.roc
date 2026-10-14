@@ -166,6 +166,52 @@ expect {
 	$ok
 }
 
+# Lane change: each fresh flipper press rotates the lit top-lane pattern one
+# place (left flipper leftward, right flipper rightward), wrapping around.
+expect {
+	g = { ..in_play(started, 15.0, 60.0, 0.0, 0.0), lanes_lit: [Bool.True, Bool.False, Bool.False] }
+	press(g, LeftFlip).lanes_lit == [Bool.False, Bool.False, Bool.True]
+}
+
+expect {
+	g = { ..in_play(started, 15.0, 60.0, 0.0, 0.0), lanes_lit: [Bool.True, Bool.False, Bool.False] }
+	press(g, RightFlip).lanes_lit == [Bool.False, Bool.True, Bool.False]
+}
+
+# Tapping again after releasing rotates again.
+expect {
+	g = { ..in_play(started, 15.0, 60.0, 0.0, 0.0), lanes_lit: [Bool.True, Bool.False, Bool.False] }
+	once = run_frames(Game.step(run_frames(press(g, RightFlip), 4), frame, [Release(RightFlip)]), 4)
+	press(once, RightFlip).lanes_lit == [Bool.False, Bool.False, Bool.True]
+}
+
+# Terminals without key-release reports: a second tap 0.25 s after the first
+# is a new press and rotates again, not part of one held press.
+expect {
+	g = { ..in_play(started, 15.0, 60.0, 0.0, 0.0), lanes_lit: [Bool.True, Bool.False, Bool.False] }
+	once = run_frames(press(g, RightFlip), 15)
+	press(once, RightFlip).lanes_lit == [Bool.False, Bool.False, Bool.True]
+}
+
+# Holding a flipper without key-release reports: one press, then after the
+# OS repeat delay a stream of autorepeat presses about 33 ms apart. The first
+# repeat looks like a tap and rotates; the next takes that back, so a hold
+# rotates exactly once.
+expect {
+	g = { ..in_play(started, 15.0, 60.0, 0.0, 0.0), lanes_lit: [Bool.True, Bool.False, Bool.False] }
+	first = run_frames(press(g, LeftFlip), 27)
+	held = List.repeat(0.U8, 10).fold(first, |s, _| run_frames(press(s, LeftFlip), 2))
+	held.lanes_lit == [Bool.False, Bool.False, Bool.True] and held.left.down
+}
+
+# Terminals that report releases: repeats while the key is down never rotate.
+expect {
+	g = { ..in_play(started, 15.0, 60.0, 0.0, 0.0), lanes_lit: [Bool.True, Bool.False, Bool.False], exact_keys: Bool.True }
+	first = run_frames(press(g, LeftFlip), 27)
+	held = List.repeat(0.U8, 10).fold(first, |s, _| run_frames(press(s, LeftFlip), 2))
+	held.lanes_lit == [Bool.False, Bool.False, Bool.True]
+}
+
 # Completing the three top lanes raises the bonus multiplier.
 expect {
 	g = { ..in_play(started, 15.0, 24.0, 0.0, -1.0), lanes_lit: [Bool.False, Bool.True, Bool.True] }

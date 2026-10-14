@@ -112,6 +112,11 @@ Game :: [].{
 		message : Str,
 		message_until : F64,
 		paused : Bool,
+		# Lane change without key-release reports: when each main flipper was
+		# last pressed, and a rotation to take back if autorepeat follows.
+		flip_pressed : { left : F64, right : F64 },
+		lane_undo_side : [Left, Right],
+		lane_undo_until : F64,
 		skill_lane : U64,
 		skill_live : Bool,
 		still_time : F64,
@@ -177,6 +182,9 @@ Game :: [].{
 			left: { angle: table.left_flipper.rest, omega: 0.0, down: Bool.False, until: 0.0 },
 			right: { angle: table.right_flipper.rest, omega: 0.0, down: Bool.False, until: 0.0 },
 			uppers: table.uppers.map(|u| { angle: u.rest, omega: 0.0, down: Bool.False, until: 0.0 }),
+			flip_pressed: { left: -1.0e9, right: -1.0e9 },
+			lane_undo_side: Left,
+			lane_undo_until: -1.0,
 			exact_keys: Bool.False,
 			mult: 1,
 			lanes_lit: List.repeat(Bool.False, table.lanes.len()),
@@ -560,34 +568,69 @@ release = |g, key| {
 	}
 }
 
+## A flipper press: raise the flipper and, during play, do the classic lane
+## change (rotate the lit top lanes and the skill-shot lane). Terminals that
+## report key releases make every new press exact. Without release reports a
+## held key arrives as autorepeat presses under hold_repeat apart, so a press
+## after a longer gap counts as a new tap; if a quick press then follows, that
+## tap was the start of autorepeat and its rotation is taken back.
 flip_press : State, [Left, Right] -> State
 flip_press = |g, side| {
 	f = match side {
 		Left => g.left
 		Right => g.right
 	}
+	last = match side {
+		Left => g.flip_pressed.left
+		Right => g.flip_pressed.right
+	}
+	held = f.down or f.until > g.time
 	extend = if f.until > g.time hold_repeat else hold_initial
-	fresh = !(f.down or f.until > g.time)
 	f2 = { ..f, down: Bool.True, until: Physics.clamp(g.time + extend, f.until, 1.0e12) }
 	g1 = match side {
-		Left => { ..g, left: f2 }
-		Right => { ..g, right: f2 }
+		Left => { ..g, left: f2, flip_pressed: { ..g.flip_pressed, left: g.time } }
+		Right => { ..g, right: f2, flip_pressed: { ..g.flip_pressed, right: g.time } }
 	}
-	if fresh and g.mode == Playing and !g.tilted {
-		# Classic lane change: flippers rotate the lit top-lane pattern.
-		rotated = match side {
-			Left => rotate_left(g1.lanes_lit)
-			Right => rotate_right(g1.lanes_lit)
-		}
-		side_name = match side {
-			Left => "left"
-			Right => "right"
-		}
-		next_skill = rotate_index(g1.skill_lane, g1.lanes_lit.len(), side)
-		note(emit({ ..g1, lanes_lit: rotated, skill_lane: next_skill }, Flip), "event flip side=${side_name}")
+	lane_change = if !(g.mode == Playing and !g.tilted) {
+		Ignore
+	} else if !held {
+		Rotate
+	} else if g.exact_keys {
+		Ignore
+	} else if g.time - last > hold_repeat {
+		Rotate
+	} else if g.lane_undo_until >= g.time and g.lane_undo_side == side {
+		Undo
 	} else {
-		g1
+		Ignore
 	}
+	match lane_change {
+		Rotate => {
+			side_name = match side {
+				Left => "left"
+				Right => "right"
+			}
+			g2 = { ..rotate_lanes(g1, side), lane_undo_side: side, lane_undo_until: g.time + hold_repeat }
+			note(emit(g2, Flip), "event flip side=${side_name}")
+		}
+		Undo => {
+			opposite = match side {
+				Left => Right
+				Right => Left
+			}
+			{ ..rotate_lanes(g1, opposite), lane_undo_until: -1.0 }
+		}
+		Ignore => g1
+	}
+}
+
+rotate_lanes : State, [Left, Right] -> State
+rotate_lanes = |g, side| {
+	rotated = match side {
+		Left => rotate_left(g.lanes_lit)
+		Right => rotate_right(g.lanes_lit)
+	}
+	{ ..g, lanes_lit: rotated, skill_lane: rotate_index(g.skill_lane, g.lanes_lit.len(), side) }
 }
 
 rotate_left : List(Bool) -> List(Bool)
