@@ -1,30 +1,21 @@
-/* pinterm native frontend: CLI parsing, terminal raw mode with guaranteed
- * restoration, frame pacing, nonblocking input, and streamed PCM audio through
- * an external player process (CoreAudio in-process on macOS). All game decisions live in the Roc core; this
- * adapter only moves bytes and keeps time. */
+/* pinterm native frontend: CLI parsing, headless replay, frame pacing and the
+ * adapter functions the Roc core calls (present, audio, tick, scores). All
+ * game decisions live in the Roc core; this file only moves bytes and keeps
+ * time, and reaches the operating system through host/platform.h. */
 #include "pinterm_host.h"
-#include "audio_coreaudio.h"
+#include "platform.h"
 #include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <spawn.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <termios.h>
 #include <time.h>
-#include <unistd.h>
 
 #ifndef PINTERM_VERSION
 #define PINTERM_VERSION "0.1.0"
 #endif
 
 extern uint8_t pinterm_run(void);
-extern char **environ;
 
 enum { SAMPLE_RATE = 22050, DEFAULT_FPS = 60, MIN_FPS = 20, MAX_FPS = 120 };
 enum { COLOR_TRUE = 0, COLOR_256 = 1, COLOR_16 = 2, COLOR_MONO = 3 };
@@ -60,98 +51,23 @@ static struct {
 } opt = {.color = -1, .sound = -1, .fps = DEFAULT_FPS};
 
 static struct {
-	bool raw;
-	struct termios saved;
-	int tty_in;
-	int out_fd;
 	FILE *frames;
 	FILE *log;
-	int audio_fd;
-	pid_t audio_pid;
-	bool audio_coreaudio; /* audio_fd feeds the in-process CoreAudio queue */
+	FILE *audio_file; /* --audio-out capture instead of live playback */
 	uint64_t frame;
 	uint64_t now_us;
-	struct timespec deadline;
+	uint64_t deadline_us;
 	ScriptEvent *script;
 	size_t script_count, script_next;
 	int last_cols, last_rows;
 	char *scores_path; /* NULL: no score file in use */
 	char warning[1024]; /* shown on stderr once the terminal is restored */
-} st = {.tty_in = -1, .out_fd = STDOUT_FILENO, .audio_fd = -1, .audio_pid = -1};
-
-static volatile sig_atomic_t quit_requested;
-static volatile sig_atomic_t resized = 1;
-static volatile sig_atomic_t stop_requested;
-
-static void write_all(int fd, const void *data, size_t length) {
-	const uint8_t *p = data;
-	while (length) {
-		ssize_t n = write(fd, p, length);
-		if (n < 0) {
-			if (errno == EINTR) continue;
-			if (errno == EAGAIN) {
-				struct timespec ts = {0, 1000000};
-				nanosleep(&ts, NULL);
-				continue;
-			}
-			return;
-		}
-		p += n;
-		length -= (size_t)n;
-	}
-}
-
-/* Async-signal-safe: only write(2) and tcsetattr(3). */
-static void terminal_restore(void) {
-	if (!st.raw) return;
-	st.raw = false;
-	(void)!write(st.out_fd, TERM_LEAVE, sizeof TERM_LEAVE - 1);
-	tcsetattr(st.tty_in, TCSAFLUSH, &st.saved);
-}
-
-static int terminal_enter(void) {
-	if (tcgetattr(st.tty_in, &st.saved) != 0) return -1;
-	struct termios raw = st.saved;
-	raw.c_iflag &= ~(tcflag_t)(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-	raw.c_oflag &= ~(tcflag_t)OPOST;
-	raw.c_cflag |= CS8;
-	raw.c_lflag &= ~(tcflag_t)(ECHO | ICANON | IEXTEN | ISIG);
-	raw.c_cc[VMIN] = 0;
-	raw.c_cc[VTIME] = 0;
-	if (tcsetattr(st.tty_in, TCSAFLUSH, &raw) != 0) return -1;
-	st.raw = true;
-	write_all(st.out_fd, TERM_ENTER, sizeof TERM_ENTER - 1);
-	return 0;
-}
-
-static void audio_close(void) {
-	if (st.audio_fd >= 0) {
-		close(st.audio_fd);
-		st.audio_fd = -1;
-	}
-	if (st.audio_coreaudio) {
-		coreaudio_stop();
-		st.audio_coreaudio = false;
-	}
-	if (st.audio_pid > 0) {
-		/* Give the player a moment to drain, then insist. */
-		for (int i = 0; i < 20; i++) {
-			if (waitpid(st.audio_pid, NULL, WNOHANG) == st.audio_pid) {
-				st.audio_pid = -1;
-				return;
-			}
-			struct timespec ts = {0, 10000000};
-			nanosleep(&ts, NULL);
-		}
-		kill(st.audio_pid, SIGTERM);
-		waitpid(st.audio_pid, NULL, 0);
-		st.audio_pid = -1;
-	}
-}
+} st;
 
 static void cleanup(void) {
-	terminal_restore();
-	audio_close();
+	plat_term_restore();
+	plat_audio_close();
+	if (st.audio_file) fflush(st.audio_file);
 	if (st.frames) fflush(st.frames);
 	if (st.log) fflush(st.log);
 	if (st.warning[0]) {
@@ -160,158 +76,15 @@ static void cleanup(void) {
 	}
 }
 
-static void on_quit_signal(int sig) {
-	(void)sig;
-	quit_requested = 1;
-}
-static void on_winch(int sig) {
-	(void)sig;
-	resized = 1;
-}
-static void on_tstp(int sig) {
-	(void)sig;
-	stop_requested = 1;
-}
-static void on_fatal(int sig) {
-	terminal_restore();
-	signal(sig, SIG_DFL);
-	raise(sig);
-}
-
-static void install_signals(void) {
-	struct sigaction sa = {0};
-	sigemptyset(&sa.sa_mask);
-	sa.sa_handler = on_quit_signal;
-	sigaction(SIGINT, &sa, NULL);
-	sigaction(SIGTERM, &sa, NULL);
-	sigaction(SIGHUP, &sa, NULL);
-	sigaction(SIGQUIT, &sa, NULL);
-	sa.sa_handler = on_winch;
-	sigaction(SIGWINCH, &sa, NULL);
-	sa.sa_handler = on_tstp;
-	sigaction(SIGTSTP, &sa, NULL);
-	sa.sa_handler = SIG_IGN;
-	sigaction(SIGPIPE, &sa, NULL);
-	sa.sa_handler = on_fatal;
-	sa.sa_flags = (int)SA_RESETHAND;
-	sigaction(SIGSEGV, &sa, NULL);
-	sigaction(SIGBUS, &sa, NULL);
-	sigaction(SIGABRT, &sa, NULL);
-	sigaction(SIGFPE, &sa, NULL);
-	sigaction(SIGILL, &sa, NULL);
-}
-
-static void suspend_self(void) {
-	terminal_restore();
-	audio_close();
-	/* SIGSTOP rather than SIGTSTP: POSIX discards default-stop TSTP in
-	 * orphaned process groups, which would leave the game un-suspended. */
-	raise(SIGSTOP);
-	/* Resumed by SIGCONT. */
-	if (terminal_enter() != 0) quit_requested = 1;
-	resized = 1;
-	clock_gettime(CLOCK_MONOTONIC, &st.deadline);
-}
-
-/* ---------- audio ---------- */
-
-static bool program_on_path(const char *name) {
-	const char *path = getenv("PATH");
-	if (!path) return false;
-	char buf[4096];
-	while (*path) {
-		const char *end = strchr(path, ':');
-		size_t len = end ? (size_t)(end - path) : strlen(path);
-		if (len && len + strlen(name) + 2 < sizeof buf) {
-			memcpy(buf, path, len);
-			buf[len] = '/';
-			strcpy(buf + len + 1, name);
-			if (access(buf, X_OK) == 0) return true;
-		}
-		if (!end) break;
-		path = end + 1;
-	}
-	return false;
-}
-
 static void audio_open(void) {
 	if (opt.audio_out) {
-		int fd = strcmp(opt.audio_out, "-") == 0 ? dup(STDOUT_FILENO)
-			: open(opt.audio_out, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
-		st.audio_fd = fd;
+		st.audio_file = strcmp(opt.audio_out, "-") == 0 ? stdout : fopen(opt.audio_out, "wb");
 		return;
 	}
-#if defined(__APPLE__)
-	int ca_fds[2];
-	if (pipe(ca_fds) == 0) {
-		for (int i = 0; i < 2; i++) {
-			fcntl(ca_fds[i], F_SETFD, FD_CLOEXEC);
-			fcntl(ca_fds[i], F_SETFL, O_NONBLOCK);
-		}
-		if (coreaudio_start(ca_fds[0], SAMPLE_RATE) == 0) {
-			st.audio_fd = ca_fds[1];
-			st.audio_coreaudio = true;
-			return;
-		}
-		close(ca_fds[0]);
-		close(ca_fds[1]);
-	}
-#endif
-	static char *pw[] = {"pw-play", "--rate=22050", "--channels=1", "--format=s16", "--latency=40ms", "-", NULL};
-	static char *pa[] = {"paplay", "--raw", "--rate=22050", "--channels=1", "--format=s16le", "--latency-msec=40", NULL};
-	static char *al[] = {"aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", "22050", "-c", "1", "--buffer-time=60000", NULL};
-	char **players[] = {pw, pa, al};
-	for (size_t i = 0; i < sizeof players / sizeof players[0]; i++) {
-		if (!program_on_path(players[i][0])) continue;
-		int fds[2];
-		if (pipe(fds) != 0) return;
-		fcntl(fds[0], F_SETFD, FD_CLOEXEC);
-		fcntl(fds[1], F_SETFD, FD_CLOEXEC);
-		posix_spawn_file_actions_t fa;
-		posix_spawn_file_actions_init(&fa);
-		posix_spawn_file_actions_adddup2(&fa, fds[0], STDIN_FILENO);
-		posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
-		posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
-		pid_t pid;
-		int rc = posix_spawnp(&pid, players[i][0], &fa, NULL, players[i], environ);
-		posix_spawn_file_actions_destroy(&fa);
-		close(fds[0]);
-		if (rc != 0) {
-			close(fds[1]);
-			continue;
-		}
-#ifdef F_SETPIPE_SZ
-		/* Small pipe bounds audio latency; full pipe means we drop samples. */
-		fcntl(fds[1], F_SETPIPE_SZ, 4096);
-#endif
-		fcntl(fds[1], F_SETFL, O_NONBLOCK);
-		st.audio_fd = fds[1];
-		st.audio_pid = pid;
-		return;
-	}
+	plat_audio_open(SAMPLE_RATE);
 }
 
-/* Sleep until an absolute CLOCK_MONOTONIC deadline, resuming after signals
-   unless a quit was requested. macOS has no clock_nanosleep, so there the
-   remaining time is recomputed and slept relatively on each pass. */
-static void sleep_until(const struct timespec *deadline) {
-#if defined(TIMER_ABSTIME) && !defined(__APPLE__)
-	while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, deadline, NULL) == EINTR && !quit_requested) {}
-#else
-	for (;;) {
-		struct timespec now, left;
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		left.tv_sec = deadline->tv_sec - now.tv_sec;
-		left.tv_nsec = deadline->tv_nsec - now.tv_nsec;
-		if (left.tv_nsec < 0) {
-			left.tv_nsec += 1000000000L;
-			left.tv_sec--;
-		}
-		if (left.tv_sec < 0) return;
-		if (nanosleep(&left, NULL) == 0 || errno != EINTR || quit_requested) return;
-	}
-#endif
-}
+static bool sound_on(void) { return st.audio_file || plat_audio_active(); }
 
 /* ---------- adapter interface ---------- */
 
@@ -320,7 +93,7 @@ void pt_config(int64_t out[PT_CFG_COUNT]) {
 	out[PT_CFG_ROWS] = st.last_rows;
 	out[PT_CFG_COLOR] = opt.color;
 	out[PT_CFG_ASCII] = opt.ascii;
-	out[PT_CFG_SOUND] = st.audio_fd >= 0;
+	out[PT_CFG_SOUND] = sound_on();
 	out[PT_CFG_SEED] = (int64_t)opt.seed;
 	out[PT_CFG_SAMPLE_RATE] = SAMPLE_RATE;
 	out[PT_CFG_HEADLESS] = opt.headless;
@@ -336,20 +109,16 @@ void pt_present(const uint8_t *bytes, size_t length) {
 		}
 		return;
 	}
-	write_all(st.out_fd, bytes, length);
+	plat_term_write(bytes, length);
 }
 
 void pt_audio(const int16_t *samples, size_t count) {
-	if (st.audio_fd < 0 || !count) return;
-	if (opt.audio_out) {
-		write_all(st.audio_fd, samples, count * sizeof *samples);
+	if (!count) return;
+	if (st.audio_file) {
+		fwrite(samples, sizeof *samples, count, st.audio_file);
 		return;
 	}
-	ssize_t n = write(st.audio_fd, samples, count * sizeof *samples);
-	if (n < 0 && errno == EPIPE) {
-		close(st.audio_fd);
-		st.audio_fd = -1;
-	}
+	plat_audio_write(samples, count);
 }
 
 void pt_log(const uint8_t *bytes, size_t length) {
@@ -372,35 +141,7 @@ static char *scores_path_resolve(void) {
 	const char *env = getenv("PINTERM_SCORES");
 	if (env && *env) return strdup(env);
 	if (opt.headless) return NULL;
-	char buf[4096];
-	const char *home = getenv("HOME");
-#if defined(_WIN32)
-	const char *appdata = getenv("APPDATA");
-	if (!appdata || !*appdata) return NULL;
-	snprintf(buf, sizeof buf, "%s\\pinterm\\scores.txt", appdata);
-#elif defined(__APPLE__)
-	if (!home || !*home) return NULL;
-	snprintf(buf, sizeof buf, "%s/Library/Application Support/pinterm/scores.txt", home);
-#else
-	const char *xdg = getenv("XDG_DATA_HOME");
-	if (xdg && *xdg == '/') snprintf(buf, sizeof buf, "%s/pinterm/scores.txt", xdg);
-	else if (home && *home) snprintf(buf, sizeof buf, "%s/.local/share/pinterm/scores.txt", home);
-	else return NULL;
-#endif
-	return strdup(buf);
-}
-
-/* mkdir -p for the parent directories of path. */
-static int make_parents(const char *path) {
-	char dir[4096];
-	if (snprintf(dir, sizeof dir, "%s", path) >= (int)sizeof dir) return -1;
-	for (char *p = dir + 1; *p; p++) {
-		if (*p != '/') continue;
-		*p = '\0';
-		if (mkdir(dir, 0700) != 0 && errno != EEXIST) return -1;
-		*p = '/';
-	}
-	return 0;
+	return plat_default_scores_path();
 }
 
 /* Whole file, at most PT_SCORES_MAX bytes; empty when missing or unreadable. */
@@ -420,18 +161,18 @@ size_t pt_load_scores(uint8_t *buf, size_t capacity) {
 void pt_save_scores(const uint8_t *bytes, size_t length) {
 	if (!st.scores_path) return;
 	char tmp[4200];
-	snprintf(tmp, sizeof tmp, "%s.tmp-%ld", st.scores_path, (long)getpid());
+	snprintf(tmp, sizeof tmp, "%s.tmp-%ld", st.scores_path, plat_pid());
 	FILE *f = NULL;
-	if (make_parents(st.scores_path) != 0 || !(f = fopen(tmp, "wb")) ||
-		fwrite(bytes, 1, length, f) != length || fflush(f) != 0 || fsync(fileno(f)) != 0) {
+	if (plat_make_parents(st.scores_path) != 0 || !(f = fopen(tmp, "wb")) ||
+		fwrite(bytes, 1, length, f) != length || fflush(f) != 0 || plat_sync_file(f) != 0) {
 		if (f) fclose(f);
-		unlink(tmp);
+		remove(tmp);
 		scores_warn("cannot save", st.scores_path);
 		return;
 	}
 	fclose(f);
-	if (rename(tmp, st.scores_path) != 0) {
-		unlink(tmp);
+	if (plat_replace_file(tmp, st.scores_path) != 0) {
+		remove(tmp);
 		scores_warn("cannot save", st.scores_path);
 	}
 }
@@ -450,7 +191,7 @@ static void pt_quarantine_scores(void) {
 }
 
 void pt_control(uint8_t code) {
-	if (code == PT_CONTROL_SUSPEND && !opt.headless) stop_requested = 1;
+	if (code == PT_CONTROL_SUSPEND && !opt.headless) plat_request_suspend();
 	if (code == PT_CONTROL_QUARANTINE_SCORES) pt_quarantine_scores();
 }
 
@@ -460,14 +201,7 @@ static void query_size(void) {
 		st.last_rows = opt.rows;
 		return;
 	}
-	struct winsize ws;
-	if (ioctl(st.out_fd, TIOCGWINSZ, &ws) == 0 && ws.ws_col && ws.ws_row) {
-		st.last_cols = ws.ws_col;
-		st.last_rows = ws.ws_row;
-	} else {
-		st.last_cols = 80;
-		st.last_rows = 24;
-	}
+	plat_term_size(&st.last_cols, &st.last_rows);
 }
 
 static void put_u64(uint8_t *p, uint64_t v) {
@@ -489,39 +223,27 @@ size_t pt_tick(uint8_t *packet, size_t capacity) {
 				n += e->length;
 			}
 		}
-		if (opt.full_frames) resized = 1;
+		if (opt.full_frames) plat_mark_resized();
 		if (opt.max_frames && st.frame >= opt.max_frames) flags |= PT_FLAG_QUIT;
 	} else {
-		if (stop_requested) {
-			stop_requested = 0;
-			suspend_self();
+		if (plat_take_suspend()) {
+			plat_suspend(TERM_ENTER, sizeof TERM_ENTER - 1);
+			st.deadline_us = plat_now_us();
 		}
-		st.deadline.tv_nsec += (long)(frame_us * 1000u);
-		while (st.deadline.tv_nsec >= 1000000000L) {
-			st.deadline.tv_nsec -= 1000000000L;
-			st.deadline.tv_sec++;
-		}
-		struct timespec now;
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		int64_t late_ns = (int64_t)(now.tv_sec - st.deadline.tv_sec) * 1000000000LL + (now.tv_nsec - st.deadline.tv_nsec);
-		if (late_ns > (int64_t)frame_us * 3000) st.deadline = now; /* fell behind: resync */
+		st.deadline_us += frame_us;
+		uint64_t now = plat_now_us();
+		if (now > st.deadline_us && now - st.deadline_us > frame_us * 3) st.deadline_us = now; /* fell behind: resync */
 		else
-			sleep_until(&st.deadline);
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		st.now_us = (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
-		while (n < capacity) {
-			ssize_t r = read(st.tty_in, packet + n, capacity - n);
-			if (r <= 0) break;
-			n += (size_t)r;
-		}
+			plat_sleep_until_us(st.deadline_us);
+		st.now_us = plat_now_us();
+		n += plat_term_read(packet + n, capacity - n);
 		if (opt.max_frames && st.frame >= opt.max_frames) flags |= PT_FLAG_QUIT;
 	}
-	if (resized) {
-		resized = 0;
+	if (plat_take_resized()) {
 		flags |= PT_FLAG_RESIZED;
 		query_size();
 	}
-	if (quit_requested) flags |= PT_FLAG_QUIT;
+	if (plat_quit_requested()) flags |= PT_FLAG_QUIT;
 	put_u64(packet, st.now_us);
 	packet[8] = (uint8_t)(st.last_cols & 0xff);
 	packet[9] = (uint8_t)(st.last_cols >> 8);
@@ -652,15 +374,6 @@ static FILE *open_out(const char *path) {
 	return f;
 }
 
-static const char *os_name(void) {
-#if defined(__linux__)
-	return "linux";
-#elif defined(__APPLE__)
-	return "macos";
-#else
-	return "unknown-os";
-#endif
-}
 
 static const char *arch_name(void) {
 #if defined(__x86_64__)
@@ -705,7 +418,7 @@ static void parse_args(int argc, char **argv) {
 			usage(stdout);
 			exit(0);
 		} else if (!strcmp(a, "--about")) {
-			printf("pinterm %s - top-down terminal pinball with a Roc core (%s %s)\n", PINTERM_VERSION, os_name(), arch_name());
+			printf("pinterm %s - top-down terminal pinball with a Roc core (%s %s)\n", PINTERM_VERSION, plat_os_name(), arch_name());
 			exit(0);
 		} else if (!strcmp(a, "--version")) {
 			printf("pinterm %s\n", PINTERM_VERSION);
@@ -795,11 +508,12 @@ static int color_from_env(void) {
 }
 
 int main(int argc, char **argv) {
+	plat_init();
 #ifdef PINTERM_DEBUG_BUILD
 	if (!getenv("MUTE_DEBUG_STATUS")) fputs("\x1b[33mDEBUG BUILD!\x1b[0m\n", stderr);
 #endif
 	parse_args(argc, argv);
-	if (!opt.seed_given) opt.seed = (uint64_t)time(NULL) ^ ((uint64_t)getpid() << 20);
+	if (!opt.seed_given) opt.seed = (uint64_t)time(NULL) ^ ((uint64_t)plat_pid() << 20);
 	if (opt.color < 0) opt.color = opt.headless ? COLOR_TRUE : color_from_env();
 	if (opt.headless) {
 		if (!opt.cols) {
@@ -816,12 +530,11 @@ int main(int argc, char **argv) {
 			fputs("pinterm: --script/--frames-out/--log-out require --headless\n", stderr);
 			return 2;
 		}
-		if (!isatty(STDOUT_FILENO)) {
+		if (!plat_stdout_is_terminal()) {
 			fputs("pinterm: stdout is not a terminal (use --headless for scripted runs)\n", stderr);
 			return 1;
 		}
-		st.tty_in = isatty(STDIN_FILENO) ? STDIN_FILENO : open("/dev/tty", O_RDONLY | O_CLOEXEC);
-		if (st.tty_in < 0) {
+		if (plat_term_open_input() != 0) {
 			fputs("pinterm: no terminal for input\n", stderr);
 			return 1;
 		}
@@ -831,18 +544,18 @@ int main(int argc, char **argv) {
 		if (opt.sound < 0) opt.sound = remote ? 0 : 1;
 		if (opt.sound) audio_open();
 	}
-	install_signals();
+	plat_install_handlers(TERM_LEAVE, sizeof TERM_LEAVE - 1);
 	atexit(cleanup);
 	if (!opt.headless) {
-		if (terminal_enter() != 0) {
+		if (plat_term_enter(TERM_ENTER, sizeof TERM_ENTER - 1) != 0) {
 			fprintf(stderr, "pinterm: cannot configure terminal: %s\n", strerror(errno));
 			return 1;
 		}
-		clock_gettime(CLOCK_MONOTONIC, &st.deadline);
+		st.deadline_us = plat_now_us();
 	}
 	st.scores_path = scores_path_resolve();
 	query_size();
-	resized = 1;
+	plat_mark_resized();
 	uint8_t status = pinterm_run();
 	cleanup();
 	return status;

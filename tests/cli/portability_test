@@ -19,13 +19,28 @@ for target in aarch64-macos x86_64-macos; do
 		check "host/$name.c compiles for $target" [ "$rc" -eq 0 ]
 		check "host/$name.c compiles for $target without diagnostics" [ -z "$err" ]
 	done
-	check "$target --about names macos" grep -aq "macos" "$dir/pinterm-$target.o"
+	check "$target --about names macos" grep -aq "macos" "$dir/platform_posix-$target.o"
 	# The macOS object carries the real CoreAudio backend, not the stub.
 	check "$target audio uses CoreAudio's AudioQueue" grep -aq "AudioQueueNewOutput" "$dir/audio_coreaudio-$target.o"
 done
 
+# The Roc ABI shim (allocator, hosted-function glue) compiles for every
+# target, Windows included: MinGW has no aligned_alloc, and MSVC-ABI Roc
+# objects need the _fltused marker.
+mkdir -p "$dir/glue"
+cp "$root"/platform/*.roc "$root/platform/pinterm_host.h" "$dir/glue/"
+capture bash "$root/tools/roc-glue" "$dir/glue"
+check "roc glue generates the platform ABI header" [ -s "$dir/glue/roc_platform_abi.h" ]
+for target in x86_64-linux-gnu aarch64-linux-gnu aarch64-macos x86_64-windows-gnu aarch64-windows-gnu; do
+	capture zig cc -target "$target" -Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE \
+		-I"$dir/glue" -I"$root/platform" -c "$root/platform/host.c" -o "$dir/shim-$target.o"
+	check "platform/host.c compiles for $target" [ "$rc" -eq 0 ]
+	check "platform/host.c compiles for $target without diagnostics" [ -z "$err" ]
+done
+check "Windows shim defines _fltused" grep -aq "_fltused" "$dir/shim-x86_64-windows-gnu.o"
+
 # Every host target has a matching Roc target in the platform header.
-for roc_target in x64v1glibc arm64glibc arm64mac x64mac; do
+for roc_target in x64v1glibc arm64glibc arm64mac x64mac x64win arm64win; do
 	check "platform declares Roc target $roc_target" grep -Eq "^[[:space:]]+$roc_target: \{" "$root/platform/main.roc"
 done
 

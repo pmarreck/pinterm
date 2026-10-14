@@ -33,6 +33,14 @@ platform ""
 			inputs: ["libhost.a", app],
 			output: Archive,
 		},
+		x64win: {
+			inputs: ["host.lib", app],
+			output: Archive,
+		},
+		arm64win: {
+			inputs: ["host.lib", app],
+			output: Archive,
+		},
 	}
 
 import Host

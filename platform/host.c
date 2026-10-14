@@ -6,10 +6,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32)
+/* MinGW has no C11 aligned_alloc; its aligned heap needs the matching
+   realloc and free. MSVC-ABI objects (the Roc core on Windows) that use
+   floating point also reference the CRT marker _fltused. */
+#include <malloc.h>
+#define pinterm_aligned_alloc(alignment, size) _aligned_malloc((size), (alignment))
+#define pinterm_aligned_realloc(ptr, size) _aligned_realloc((ptr), (size), 16)
+#define pinterm_aligned_free(ptr) _aligned_free(ptr)
+int _fltused = 0;
+#else
+#define pinterm_aligned_alloc(alignment, size) aligned_alloc((alignment), (size))
+#define pinterm_aligned_realloc(ptr, size) realloc((ptr), (size))
+#define pinterm_aligned_free(ptr) free(ptr)
+#endif
+
 void *roc_alloc(size_t length, size_t alignment) {
 	if (alignment < sizeof(void *)) alignment = sizeof(void *);
 	size_t rounded = (length + alignment - 1) / alignment * alignment;
-	void *p = aligned_alloc(alignment, rounded ? rounded : alignment);
+	void *p = pinterm_aligned_alloc(alignment, rounded ? rounded : alignment);
 	if (!p) {
 		fputs("pinterm: out of memory\n", stderr);
 		abort();
@@ -19,7 +34,7 @@ void *roc_alloc(size_t length, size_t alignment) {
 
 void roc_dealloc(void *ptr, size_t alignment) {
 	(void)alignment;
-	free(ptr);
+	pinterm_aligned_free(ptr);
 }
 
 void *roc_realloc(void *ptr, size_t length, size_t alignment) {
@@ -29,7 +44,7 @@ void *roc_realloc(void *ptr, size_t length, size_t alignment) {
 		fputs("pinterm: unsupported realloc alignment\n", stderr);
 		abort();
 	}
-	void *p = realloc(ptr, length ? length : 1);
+	void *p = pinterm_aligned_realloc(ptr, length ? length : 1);
 	if (!p) {
 		fputs("pinterm: out of memory\n", stderr);
 		abort();
