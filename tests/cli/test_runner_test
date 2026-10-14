@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# ./test --prebuilt (used by CI to test the packaged builds instead of
+# rebuilding them) refuses to run without both artifacts, before any work.
+set -u
+SUITE=test-runner
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-test-runner.XXXXXX")"
+mkdir -p "$dir/site"
+printf '#!/bin/sh\n' >"$dir/pinterm" && chmod +x "$dir/pinterm"
+
+capture env PINTERM_BIN="$dir/missing" PINTERM_WEB="$dir/site" "$root/test" --prebuilt
+check "missing binary refused" [ "$rc" -eq 2 ]
+check "missing binary named" grep -q "PINTERM_BIN" <<<"$err"
+capture env PINTERM_BIN="$dir/pinterm" PINTERM_WEB="$dir/site" "$root/test" --prebuilt
+check "site without the game core refused" [ "$rc" -eq 2 ]
+check "missing site named" grep -q "PINTERM_WEB" <<<"$err"
+capture env PINTERM_BIN="$dir/pinterm" PINTERM_WEB="$dir/site" "$root/test" --bogus
+check "unknown argument refused" [ "$rc" -eq 2 ]
+command rm -rf -- "$dir"
+finish

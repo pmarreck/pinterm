@@ -195,7 +195,16 @@
               export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
               export ROC_CACHE_DIR=$TMPDIR/roc-cache
               patchShebangs ./build ./build-web ./deploy-web ./test tests tools bin
-              ./test
+              # Test the packaged native binary and web site rather than
+              # compiling both again (each Roc compile takes about 18 minutes).
+              # The entrypoint layout ./build publishes is recreated from the
+              # package so tests/cli/launcher_test still runs; ./build's own
+              # publish step is covered by a local ./test.
+              arch=${pkgs.stdenv.hostPlatform.parsed.cpu.name}
+              mkdir -p out/release/bin bin/linux/$arch
+              ln -s ${pinterm}/bin/pinterm out/release/bin/pinterm
+              ln -s ../../../out/release/bin/pinterm bin/linux/$arch/pinterm
+              PINTERM_BIN=$PWD/out/release/bin/pinterm PINTERM_WEB=${web} ./test --prebuilt
             '';
             installPhase = "mkdir -p $out && echo passed > $out/result";
           } // rocEnv);

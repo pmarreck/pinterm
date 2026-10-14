@@ -5,6 +5,8 @@
 # (differential replay against native, headless Chromium session).
 # Independent suites run in parallel; output is printed in a fixed order.
 # Usage: ./test [--rebuild]   (force the optimized build even if up to date)
+#        ./test --prebuilt    (test PINTERM_BIN and PINTERM_WEB as given; CI uses
+#                             this to test the packaged builds without rebuilding)
 set -u
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -z "${PINTERM_ROC:-}" ]; then
@@ -12,9 +14,21 @@ if [ -z "${PINTERM_ROC:-}" ]; then
 fi
 cd "$root" || exit 1
 force_build=0
-[ "${1:-}" = "--rebuild" ] && force_build=1
+prebuilt=0
+for arg in "$@"; do
+	case "$arg" in
+		--rebuild) force_build=1 ;;
+		--prebuilt) prebuilt=1 ;;
+		*) echo "test: unknown argument: $arg" >&2; exit 2 ;;
+	esac
+done
 export MUTE_DEBUG_STATUS=1 PINTERM_MUTE=1
 export PINTERM_BIN="${PINTERM_BIN:-$root/out/release/bin/pinterm}"
+export PINTERM_WEB="${PINTERM_WEB:-$root/out/web}"
+if [ "$prebuilt" = 1 ]; then
+	[ -x "$PINTERM_BIN" ] || { echo "test: --prebuilt needs PINTERM_BIN to name a built pinterm (got $PINTERM_BIN)" >&2; exit 2; }
+	[ -s "$PINTERM_WEB/pinterm.wasm" ] || { echo "test: --prebuilt needs PINTERM_WEB to name a built web site (got $PINTERM_WEB)" >&2; exit 2; }
+fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-test.XXXXXX")"
 trap 'command rm -rf -- "$work"' EXIT
 # Interactive test sessions would otherwise read and write the real per-user
@@ -45,21 +59,24 @@ build_stale() {
 	# Test-only Roc files are not linked into the binary.
 	[ -n "$(find src platform host nix build flake.nix flake.lock -newer "$PINTERM_BIN" ! -name "test_*.roc" ! -name TestKit.roc -print -quit 2>/dev/null)" ]
 }
-export PINTERM_WEB="${PINTERM_WEB:-$root/out/web}"
 web_stale() {
 	[ "$force_build" = 1 ] && return 0
 	[ -s "$PINTERM_WEB/pinterm.wasm" ] || return 0
 	[ -n "$(find src web build-web nix flake.nix flake.lock -newer "$PINTERM_WEB/pinterm.wasm" ! -name "test_*.roc" ! -name TestKit.roc -print -quit 2>/dev/null)" ]
 }
 web_build_step() {
-	if web_stale; then
+	if [ "$prebuilt" = 1 ]; then
+		echo "using prebuilt $PINTERM_WEB"
+	elif web_stale; then
 		./build-web --out "$PINTERM_WEB" || return 1
 	else
 		echo "up to date ($(realpath --relative-to="$root" "$PINTERM_WEB"))"
 	fi
 }
 build_step() {
-	if build_stale; then
+	if [ "$prebuilt" = 1 ]; then
+		echo "using prebuilt $PINTERM_BIN"
+	elif build_stale; then
 		./build || return 1
 	else
 		echo "up to date ($(realpath --relative-to="$root" "$PINTERM_BIN"))"

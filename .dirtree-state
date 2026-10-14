@@ -57,6 +57,7 @@ annotate=[
 	tests/cli/launcher_test = bin/pinterm launcher checks
 	tests/cli/portability_test = Cross-compiles the terminal host for macOS (arm64, x86_64) with -Werror, checks --about's OS name and that platform/main.roc declares a Roc target per host target
 	tests/cli/scores_test = Score file location precedence, save after initials, reload, PINTERM_SCORES, damaged-file quarantine
+	tests/cli/test_runner_test = ./test --prebuilt refuses to run without PINTERM_BIN and PINTERM_WEB artifacts
 	tests/deploy/deploy_test = deploy-web publishing against a throwaway repo: tree, no-op rerun, parent chain, untouched checkout
 	tests/integration/audio_pull_test = Builds and runs tests/unit/audio_pull_test.c
 	tests/integration/audio_ring_test = Builds and runs tests/unit/audio_ring_test.c

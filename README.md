@@ -256,9 +256,9 @@ in headless Chromium and plays it with real keyboard events.
   headless Chromium session driven by real keyboard events.
 
 Continuous integration runs on Mechatron Prime CI, a self-hosted Nix build
-service. For every push it builds the Linux and web packages, runs `./test`
-(`checks.x86_64-linux.test`), and runs `tests/platform/suite` on a Mac against
-the cross-compiled macOS binary (`checks.aarch64-darwin.test`) and under Wine
+service. For every push it builds the Linux and web packages, runs
+`./test --prebuilt` against those packages (`checks.x86_64-linux.test`), and
+runs `tests/platform/suite` on a Mac against the cross-compiled macOS binary (`checks.aarch64-darwin.test`) and under Wine
 against the Windows x86_64 binary (`checks.x86_64-linux.windows`). That suite
 runs every test of the finished binary (the pseudo-terminal sessions only on
 the Mac) and a differential that requires each build to reproduce the Linux

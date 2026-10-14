@@ -15,7 +15,6 @@ Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for o
 
 ## Maintenance
 
-- [ ] CI cost: make checks.test test packages.default and packages.web instead of rebuilding both (two fewer Roc compiles per commit, promised to mechatron-prime).
 - [ ] When the roc pin is next bumped past b774e6f271, decide whether to keep tools/roc-glue (still harmless) or drop it.
 - [ ] Consider stripping the release binary (3.2 MB with debug info).
 - [ ] Improve the shared writing-roc skill only with reproduced, version-labeled new lessons (separate commit, skill-creator, shared-skill tests).
@@ -29,7 +28,6 @@ Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for o
 ## Recently completed
 
 - [x] Unreproduced 2026-10-08 glue flake: same error as the roc glue cache race fixed in tools/roc-glue on 2026-10-12. (done 2026-10-14 14:40 EDT)
-- [x] NixOS-WSL build fixed by depending only on printableBinaryZig (7795d42). (done 2026-10-13 11:55 EDT)
 - [x] macOS host portability and arm64mac/x64mac targets; --about names the OS (3078199). (done 2026-10-13 22:05 EDT)
 - [x] macOS audio through CoreAudio (45e5ad7); listened to on a Mac 2026-10-14. (done 2026-10-14 10:18 EDT)
 - [x] Native smoke test and macOS frame pacing confirmed by real play on a Mac; tests/integration/terminal_test runs the real-clock quit path there in CI. (done 2026-10-14 10:18 EDT)
@@ -38,3 +36,4 @@ Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for o
 - [x] Windows x86_64 and arm64 builds, host split behind host/platform.h, Wine check in CI (999efaa, 8402574). (done 2026-10-14 14:10 EDT)
 - [x] Mechatron Prime CI green for 8402574 (Windows host, Wine check, arm64 build), 2371 s. (done 2026-10-14 15:56 EDT)
 - [x] Windows reports key releases (kitty repeat and release events from console input records via host/win_keys.c; focus loss releases held keys), so flipper holds are exact there. (done 2026-10-14 16:20 EDT)
+- [x] CI cost: checks.test runs ./test --prebuilt against packages.default and packages.web instead of compiling both again (two fewer Roc compiles per commit). (done 2026-10-14 16:45 EDT)
