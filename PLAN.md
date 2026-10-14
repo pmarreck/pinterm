@@ -1,58 +1,41 @@
-# Plan
+# PLAN
 
-- [x] Verify and pin a usable Roc compiler/platform in a Nix flake, reusing existing working toolchain patterns where suitable. (2026-10-07 01:20 EDT)
-- [x] Write failing deterministic gameplay tests and implement the ball, flippers, collision geometry, scoring, drain, and three-ball restart loop in Roc. (2026-10-07 01:45 EDT)
-- [x] Input parser in Roc: bytes, arrows, kitty press/repeat/release, Ctrl-C/Ctrl-Z, byte-set classifier tests. (2026-10-07 01:38 EDT)
-- [x] Renderer in Roc: half-block table, panel/HUD, popups, scaling, color/mono/ASCII fallbacks, diffed ANSI. (2026-10-07 01:41 EDT)
-- [x] Synthesizer in Roc: square/triangle/saw/noise voices per effect, capped pool, deterministic PCM tests. (2026-10-07 01:46 EDT)
-- [x] Main loop in Roc (Loop.frame) wiring tick packets, input, game, render, audio, event log. (2026-10-07 01:49 EDT)
-- [x] Headless replay integration test: launch, flips, scoring, drains, game over, restart, determinism. (2026-10-07 02:00 EDT)
-- [x] Real pty cleanup tests: quit, SIGTERM, SIGSEGV, SIGABRT, suspend/resume. (2026-10-07 02:05 EDT)
-- [x] Fast ./test: rebuild only when inputs change, parallel per-area Roc suites with compiler cache, parallel integration suites, real quit-key pty test (4.4 min -> 15.5 s when no rebuild is needed). (2026-10-07 09:45 EDT)
-- [x] Web build: Roc core as wasm32 + ghostty-web + Web Audio, Nix output .#web, differential and headless-browser tests, README screenshot. (2026-10-07 16:55 EDT)
-- [x] GitHub Pages via ./deploy-web (gh-pages branch, no Actions); live at https://pmarreck.github.io/pinterm/ and verified with a real-keyboard headless Chromium session. (2026-10-07 18:40 EDT)
-- [x] Faint seams between cell rows in ghostty-web: fractional cell rectangles and font block glyphs; the web build now snaps rects to device pixels and draws blocks as shapes. (2026-10-10 16:50 EDT, pending a phone check)
-- [x] Touch controls: corner flippers, swipe-down plunger with distance power, no iOS keyboard (terminal input disarmed + touch layer), audio unlock on gesture end, portrait layout; unit + Chromium touch tests. (2026-10-07 19:45 EDT)
-- [x] Launch orbit no longer drains into the left outlane (left orbit exit guide; property test over powers and seeds). (2026-10-08 08:50 EDT)
-- [x] Motion nudge: device bump (7.5 m/s², 0.4 s cooldown) nudges via the same input as t; permission on gesture end; unit + Chromium tests. (2026-10-08 09:00 EDT)
-- [x] Alternate tables (Orbital, Iron Horse, Graveyard; after Pinball Dreams' Ignition/Steel Wheel/Nightmare and Space Cadet), drop targets, ramps, upper flipper, per-table highs; [ ] / PageUp/PageDown and sideways swipe between games; smoothstep slide; per-table property tests and native/wasm differential on every table; ?table=N. (2026-10-08 10:30 EDT)
-- [x] Swipe left/right "not working" on a real phone was swipes starting in the lower flipper corners, which are flipper zones by design; middle-to-top swipes work. ?diag overlay and mid-game "between games" message shipped. (2026-10-08 20:35 EDT) Emulated swipe passes on the live site. Add aedicule-style ?diag overlay (touch counts, last gesture dx/dy/classification/keys, game mode, build id) to get device evidence; give feedback when a table key arrives mid-game.
-- Make the tables genuinely distinct (2026-10-08: "mostly the same"). Decided: per-table whole geometry, unique mechanics, art and sound; identical flipper physics; deepen the four and add a fifth.
-  - [x] Per-table flipper sets (data, same physics); Classic byte-identical. (2026-10-08 20:55 EDT)
-  - [x] Mechanics, test-first: kickback, magnet, portals, movers, spinners, rotors, ghost bumpers. (2026-10-08 21:20 EDT)
-  - [x] Redesigned Orbital (orbit loop, no slings, wormhole), Iron Horse (train, 3rd flipper, kickback), Graveyard (ghosts, magnet). (2026-10-08 22:15 EDT)
-  - [x] Fifth table: Clockwork (hourglass, two flipper pairs, rotor, spinner). (2026-10-08 22:15 EDT)
-  - [x] Per-table background art (structural tests only; Peter to eyeball live). (2026-10-08 23:00 EDT)
-  - [x] Per-table sound palette and start/drain/game-over jingles; Classic audio byte-identical. (2026-10-08 23:00 EDT)
-  - [x] README, push, CI, deploy. (2026-10-08 23:45 EDT)
-- [ ] Unreproduced flake (2026-10-08): one ./test run failed in the web build with roc "invalid platform: header declares platform glue as its platform, but that package does not have a platform header" (from `roc glue CGlue.roc`). Not reproduced in 96 concurrent glue runs (vs glue, vs cached roc test, vs native roc build). Next: capture full roc output when it recurs; consider serializing the two glue steps.
-- [ ] Seeded table layout: derive a deterministic layout variant from a seed (reusing the random project's Roc DRBG if it can be pinned as a flake input), print the seed, and accept --seed to replay a layout.
-- [x] Public GitHub repo, Mechatron Prime CI targets and README badge. (2026-10-07 10:20 EDT)
-- [ ] Native smoke test in a real terminal; record observed results.
-- [x] Sound on NixOS-on-WSL: no player on PATH (WSLg PulseServer present). The Nix package now wraps pinterm with pulseaudio's bin appended to PATH; checks.player guards it. (2026-10-09 20:00 EDT)
-- [x] Bigger ball: two edge-justified half circles (U+1FBE9/U+1FBEB) when the ball spans about two columns, else a dot; "()" in ASCII. Font coverage outside ghostty-web and common Linux/Windows fonts unverified. (2026-10-09 20:00 EDT)
-- [ ] iOS Safari showed the ball halves as empty boxes (no font has U+1FBE9/U+1FBEB) and thin outlines around block cells (2026-10-10). Web build now draws the playfield glyphs as canvas shapes and snaps cell rectangles to device pixels; verify on the phone.
-- [x] Native ball in WezTerm showed a hatched box: WezTerm in NixOS-WSL had no font with U+1FBE9/U+1FBEB and fell back to its Last Resort font. The two-cell ball is now the octant pair U+1CDAA/U+1CD6E (4x4 block octagon), which WezTerm, Ghostty and kitty draw without a font; the web build draws the same blocks. (2026-10-11 20:20 EDT)
-- [ ] Native build feels laggier than the web build (2026-10-10). Setup: Linux WezTerm running inside NixOS-WSL, displayed on Windows through WSLg (Wayland remoted to Windows over RDP), while the web build ran in a native Windows browser. Measured game cost: 0.37 ms CPU and ~100 output bytes per frame at 350x90; frames already use synchronized output; pw-play at 40 ms latency. Likely cause is WSLg window remoting, not the game; unconfirmed. Suggested check: Windows-native WezTerm into WSL.
-- [x] Persistent high scores: --scores PATH, then PINTERM_SCORES, then the platform data directory (headless: no default); browser localStorage (demo never saves). File = header line + printable-binary text of nonce + TEA-CTR(plaintext + BLAKE3 hex). Damaged files kept as .bad-TIME. Codec and Map copied verbatim from printable-binary 8942124 (pinned flake input; drift test). End-to-end test decodes with the printable-binary CLI, reference TEA C and b3sum. (2026-10-11 23:40 EDT)
-- [x] Old-school initials entry: left flipper cycles the current letter (space, A-Z, 0-9, _ - * ! ?), right flipper moves the cursor and wraps after the third letter. Locks in after 10 seconds without input, or after three cursor moves in a row with no letter change. Each table keeps a top-5 list (in memory until persistence lands). (2026-10-11 21:25 EDT)
-- [x] Build failed on a clean machine: printable-binary 8942124 locked an unpublished pmarreck/roc commit (HTTP 404), which resolved only where the Nix store already had it, including the CI host. printable-binary fixed it at cdefa95 (public pmarreck/roc_luajit snapshot); pin bumped and every locked GitHub archive checked reachable. (2026-10-12 14:10 EDT)
-- [x] CI failed on 14d5a25 (browser-only change) in the native build: "declares platform glue as its platform, but that package does not have a platform header". Cause: `roc glue` rewrites its built-in glue platform inside ROC_CACHE_DIR non-atomically on every run, and ./test runs the native and web builds in parallel with one cache. Reproduced 8 failures in 192 runs (32 concurrent, shared cache), 0 in 192 with private caches. Fix: tools/roc-glue gives each run a private cache; tests/cli/glue_test checks it with a stub compiler. (2026-10-12 15:00 EDT)
-- [x] Upstream report of the non-atomic compiler-platform materialization: not needed, roc-lang/roc already fixed it in b774e6f271 (2026-10-09, newer than our pin). (2026-10-13 08:45 EDT)
+Open work in priority order. Completed items: docs/PLAN_LOG.md. Background for open items: docs/plan_context/.
+
+## Platforms
+
+- [ ] Confirm Mechatron Prime CI is green for 8402574 (Windows host and Wine check). (context: docs/plan_context/windows.md)
+- [ ] Windows: interactive play in a real Windows console (display, keys, sound, resize, cleanup); needs a person on a Windows machine. (context: docs/plan_context/windows.md)
+- [ ] Windows: report key releases from console input records for every game key, making flipper holds exact. (context: docs/plan_context/windows.md)
+- [ ] Windows: open score files through wide-character paths so non-ASCII profile paths work. (context: docs/plan_context/windows.md)
+- [ ] Windows arm64: run the build on an arm64 Windows machine when one is available.
+
+## Needs a person to check
+
+- [ ] iOS Safari: confirm the canvas-drawn ball halves and device-pixel-snapped cells render correctly on the phone (2026-10-10 report).
+- [ ] Native lag under WSLg: compare with Windows-native WezTerm or the native Windows build. (context: docs/plan_context/native_lag.md)
+
+## Maintenance
+
 - [ ] When the roc pin is next bumped past b774e6f271, decide whether to keep tools/roc-glue (still harmless) or drop it.
-- [x] Coverage antialiasing in the core: static table supersampled 4x4 at edge pixels, moving parts painted by coverage, both blended in linear light (gamma 2.2); bumpers and the pixels beside them stay crisp. Cost at 350x90: static raster ~10 ms -> ~30 ms on startup or resize; steady state ~285 -> ~685 bytes per frame (~41 KB/s at 60 fps); first full frame 102 KB -> 134 KB. The ball is still the octant glyph pair, not antialiased. (2026-10-13 09:10 EDT)
-- [x] Build failed on a NixOS-WSL host: printable-binary's default package includes its Cosmopolitan (APE) build, whose cosmocc helper `mktemper` failed with exit 127 there (cause unconfirmed; likely WSL's Windows-interop binfmt handler claiming APE files). pinterm now depends on printableBinaryZig, the only package that provides the `printable-binary` CLI the tests use, so cosmocc is out of the closure. Reported to printable_binary. (2026-10-13 11:55 EDT)
-- [x] macOS host build (2026-10-13, reported by rocosmo, which cross-builds pinterm into one multi-OS file): host/pinterm.c uses Linux-only `pipe2`, `fcntl(F_SETPIPE_SZ)` and `clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME)`. Fixed with pipe + FD_CLOEXEC, F_SETPIPE_SZ only where defined, and a relative-nanosleep fallback for absolute frame deadlines; tests/cli/portability_test cross-compiles the host for both macOS targets with -Werror. (2026-10-13 22:05 EDT)
-- [x] Declare `arm64mac` and `x64mac` targets in platform/main.roc (rocosmo verified both link with zig cc). (2026-10-13 22:05 EDT)
-- [x] `--about` derives the OS name at compile time (linux, macos). (2026-10-13 22:05 EDT)
-- [ ] Confirm the macOS frame pacing (sleep_until's relative-nanosleep path) in a short interactive session on a Mac. rocosmo verified 3078199 builds without a shim, runs on arm64 and under Rosetta, and prints the right --about, but headless runs use a fixed clock and skip that path.
-- [x] macOS audio through CoreAudio: AudioToolbox loaded with dlopen (no macOS SDK needed to cross-compile), an AudioQueue of three 512-frame buffers whose callback pulls from the existing sample pipe (host/audio_pull.c: silence when empty, oldest samples dropped beyond a 2048-byte backlog). Unit-tested on Linux; a silent probe on a real Mac confirmed the queue starts and drains the pipe. Not yet listened to. (2026-10-13 23:40 EDT)
 - [ ] Consider stripping the release binary (3.2 MB with debug info).
-- [ ] Windows in CI (requested 2026-10-14; x86_64 first, arm64 wanted too). Done 2026-10-14 13:40 EDT, pending CI: host split behind host/platform.h (999efaa), host/platform_win32.c (VT console, console input records, QPC clock, console control and crash handlers, waveOut via host/audio_ring.c), `./build --target x86_64-windows|aarch64-windows`, checks.x86_64-linux.windows runs tests/platform/suite under Wine (pseudo-terminal suite skipped and reported) including the byte-for-byte differential; arm64 is built only. Still open: interactive play on a real Windows console (BDFN to try on a Windows machine), key-release reporting from console input records (would make flipper holds exact), non-ASCII paths (fopen uses the ANSI code page). Spike passed 2026-10-14 09:20 EDT: the Roc core built for x64win (17m47s at --opt=speed), linked with zig cc -target x86_64-windows-gnu to a throwaway headless host, ran under Wine 11 and matched the Linux headless replay byte for byte (600 full frames + event log, muted). Porting facts: MinGW lacks aligned_alloc (use _aligned_malloc/_aligned_realloc/_aligned_free together), and the MSVC-ABI Roc objects need `int _fltused`. Next: a real Win32 console host (SetConsoleMode raw mode + VT output, console input/resize events, QueryPerformanceCounter frame clock, SetConsoleCtrlHandler cleanup, in-process waveOut/WASAPI audio), x64win/arm64win targets, and a Wine replay check on x86_64-linux CI.
-- [x] macOS in CI: the pinned Roc compiler cannot build on Darwin in Nix (upstream marks it broken; overriding fails on missing CoreFoundation/CoreServices frameworks), so `./build --target aarch64-macos` cross-builds on Linux (packages.x86_64-linux.pinterm-aarch64-macos) and checks.aarch64-darwin.test runs tests/platform/suite on a Mac: binary-level suites plus a differential that must match the Linux replay (packages.x86_64-linux.replay-reference) byte for byte. Mac builder quirks found: /bin/ps is setuid and refused to build users (use pkgs.ps), BSD script(1) rejects a FIFO on stdin and waits for EOF. Verified by building the check derivation on the Mac before pushing. (2026-10-14 10:15 EDT)
-- [x] Lane change rotated only on terminals that report key releases (2026-10-14, found playing on a Mac terminal without the kitty keyboard protocol). Without release reports a tap holds the flipper 0.42 s and presses inside that window counted as held, so ordinary tapping stopped rotating the lit lanes. Now a press more than hold_repeat (0.12 s) after that flipper's previous press is a new tap, and a quick press after it (autorepeat starting) takes the rotation back, so a held key rotates once. (2026-10-14 11:10 EDT)
-- [x] Browser view identical to terminal view: glyphs.js now draws the octant pair as the same 4x4 block octagon the terminal shows, tested against the eighths named in the Unicode character names. (2026-10-12 13:20 EDT)
-- [ ] Idea: global high scores. Needs a server. Because a game is deterministic from its seed and inputs, a submission could be the seed plus the input log, and the server could replay it through the same WebAssembly core to verify the score before accepting it. Hosting options and abuse limits undecided.
-- [x] README (install, controls, rules, compatibility, platforms, architecture, tests) and dirtree notes. (2026-10-07 10:15 EDT)
-- [ ] Improve the shared writing-roc skill only with reproduced/version-labeled new lessons and preserve unrelated edits (separate commit, skill-creator, shared-skill tests).
+- [ ] Improve the shared writing-roc skill only with reproduced, version-labeled new lessons (separate commit, skill-creator, shared-skill tests).
 - [ ] Report completion to the orchestrator via llmsend with exact tests, compiler pin, run commands, limitations and what needs human playtesting.
+
+## Ideas (not requested)
+
+- [ ] Seeded table layout: a deterministic layout variant from a seed, printed and replayable with --seed.
+- [ ] Global high scores verified by replaying seed plus input log on a server. (context: docs/plan_context/global_high_scores.md)
+
+## Recently completed
+
+- [x] Unreproduced 2026-10-08 glue flake: same error as the roc glue cache race fixed in tools/roc-glue on 2026-10-12. (done 2026-10-14 14:40 EDT)
+- [x] CI race in roc glue fixed with a private cache per run; tests/cli/glue_test checks it. (done 2026-10-12 15:00 EDT)
+- [x] Coverage antialiasing in linear light, bumpers crisp (678c0de). (done 2026-10-13 09:10 EDT)
+- [x] NixOS-WSL build fixed by depending only on printableBinaryZig (7795d42). (done 2026-10-13 11:55 EDT)
+- [x] macOS host portability and arm64mac/x64mac targets; --about names the OS (3078199). (done 2026-10-13 22:05 EDT)
+- [x] macOS audio through CoreAudio (45e5ad7); listened to on a Mac 2026-10-14. (done 2026-10-14 10:18 EDT)
+- [x] Native smoke test and macOS frame pacing confirmed by real play on a Mac; tests/integration/terminal_test runs the real-clock quit path there in CI. (done 2026-10-14 10:18 EDT)
+- [x] macOS in CI: Linux cross-build tested on a Mac with a byte-for-byte differential (a419825). (done 2026-10-14 10:15 EDT)
+- [x] Lane change rotates on every tap without key-release reports; autorepeat takes it back (0013db6). (done 2026-10-14 11:10 EDT)
+- [x] Windows x86_64 and arm64 builds, host split behind host/platform.h, Wine check in CI (999efaa, 8402574). (done 2026-10-14 14:10 EDT)
