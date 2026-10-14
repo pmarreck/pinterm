@@ -242,7 +242,9 @@ static void audio_open(void) {
 	for (size_t i = 0; i < sizeof players / sizeof players[0]; i++) {
 		if (!program_on_path(players[i][0])) continue;
 		int fds[2];
-		if (pipe2(fds, O_CLOEXEC) != 0) return;
+		if (pipe(fds) != 0) return;
+		fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+		fcntl(fds[1], F_SETFD, FD_CLOEXEC);
 		posix_spawn_file_actions_t fa;
 		posix_spawn_file_actions_init(&fa);
 		posix_spawn_file_actions_adddup2(&fa, fds[0], STDIN_FILENO);
@@ -256,13 +258,37 @@ static void audio_open(void) {
 			close(fds[1]);
 			continue;
 		}
+#ifdef F_SETPIPE_SZ
 		/* Small pipe bounds audio latency; full pipe means we drop samples. */
 		fcntl(fds[1], F_SETPIPE_SZ, 4096);
+#endif
 		fcntl(fds[1], F_SETFL, O_NONBLOCK);
 		st.audio_fd = fds[1];
 		st.audio_pid = pid;
 		return;
 	}
+}
+
+/* Sleep until an absolute CLOCK_MONOTONIC deadline, resuming after signals
+   unless a quit was requested. macOS has no clock_nanosleep, so there the
+   remaining time is recomputed and slept relatively on each pass. */
+static void sleep_until(const struct timespec *deadline) {
+#if defined(TIMER_ABSTIME) && !defined(__APPLE__)
+	while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, deadline, NULL) == EINTR && !quit_requested) {}
+#else
+	for (;;) {
+		struct timespec now, left;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		left.tv_sec = deadline->tv_sec - now.tv_sec;
+		left.tv_nsec = deadline->tv_nsec - now.tv_nsec;
+		if (left.tv_nsec < 0) {
+			left.tv_nsec += 1000000000L;
+			left.tv_sec--;
+		}
+		if (left.tv_sec < 0) return;
+		if (nanosleep(&left, NULL) == 0 || errno != EINTR || quit_requested) return;
+	}
+#endif
 }
 
 /* ---------- adapter interface ---------- */
@@ -458,7 +484,7 @@ size_t pt_tick(uint8_t *packet, size_t capacity) {
 		int64_t late_ns = (int64_t)(now.tv_sec - st.deadline.tv_sec) * 1000000000LL + (now.tv_nsec - st.deadline.tv_nsec);
 		if (late_ns > (int64_t)frame_us * 3000) st.deadline = now; /* fell behind: resync */
 		else
-			while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &st.deadline, NULL) == EINTR && !quit_requested) {}
+			sleep_until(&st.deadline);
 		clock_gettime(CLOCK_MONOTONIC, &now);
 		st.now_us = (uint64_t)now.tv_sec * 1000000u + (uint64_t)now.tv_nsec / 1000u;
 		while (n < capacity) {
@@ -604,6 +630,16 @@ static FILE *open_out(const char *path) {
 	return f;
 }
 
+static const char *os_name(void) {
+#if defined(__linux__)
+	return "linux";
+#elif defined(__APPLE__)
+	return "macos";
+#else
+	return "unknown-os";
+#endif
+}
+
 static const char *arch_name(void) {
 #if defined(__x86_64__)
 	return "x86_64";
@@ -647,7 +683,7 @@ static void parse_args(int argc, char **argv) {
 			usage(stdout);
 			exit(0);
 		} else if (!strcmp(a, "--about")) {
-			printf("pinterm %s - top-down terminal pinball with a Roc core (linux %s)\n", PINTERM_VERSION, arch_name());
+			printf("pinterm %s - top-down terminal pinball with a Roc core (%s %s)\n", PINTERM_VERSION, os_name(), arch_name());
 			exit(0);
 		} else if (!strcmp(a, "--version")) {
 			printf("pinterm %s\n", PINTERM_VERSION);

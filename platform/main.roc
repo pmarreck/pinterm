@@ -25,6 +25,14 @@ platform ""
 			inputs: ["libhost.a", app],
 			output: Archive,
 		},
+		arm64mac: {
+			inputs: ["libhost.a", app],
+			output: Archive,
+		},
+		x64mac: {
+			inputs: ["libhost.a", app],
+			output: Archive,
+		},
 	}
 
 import Host

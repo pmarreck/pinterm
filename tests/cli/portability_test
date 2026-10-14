@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# The terminal host compiles for macOS (arm64 and x86_64) with the same
+# warnings-as-errors flags as the Linux build, and names the OS it was built
+# for in --about. Cross-compiling with zig cc needs no Mac, and catches
+# Linux-only calls (pipe2, F_SETPIPE_SZ, clock_nanosleep) before a Mac build
+# does. Running on a Mac is outside this suite.
+set -u
+SUITE=portability
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-portability.XXXXXX")"
+export ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$dir/zig-cache}" ZIG_LOCAL_CACHE_DIR="$dir/zig-local"
+
+for target in aarch64-macos x86_64-macos; do
+	obj="$dir/host-$target.o"
+	capture zig cc -target "$target" -Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE \
+		-I"$root/platform" -c "$root/host/pinterm.c" -o "$obj"
+	check "host compiles for $target" [ "$rc" -eq 0 ]
+	check "host compiles for $target without diagnostics" [ -z "$err" ]
+	check "$target --about names macos" grep -aq "macos" "$obj"
+done
+
+# Every host target has a matching Roc target in the platform header.
+for roc_target in x64v1glibc arm64glibc arm64mac x64mac; do
+	check "platform declares Roc target $roc_target" grep -Eq "^[[:space:]]+$roc_target: \{" "$root/platform/main.roc"
+done
+
+command rm -rf -- "$dir"
+finish

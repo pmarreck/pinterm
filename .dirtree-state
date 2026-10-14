@@ -47,6 +47,7 @@ annotate=[
 	tests/cli/cli_test = CLI option and error-path checks
 	tests/cli/glue_test = Checks tools/roc-glue isolates each roc glue run's cache (stub compiler) and that build scripts use it
 	tests/cli/launcher_test = bin/pinterm launcher checks
+	tests/cli/portability_test = Cross-compiles the terminal host for macOS (arm64, x86_64) with -Werror, checks --about's OS name and that platform/main.roc declares a Roc target per host target
 	tests/cli/scores_test = Score file location precedence, save after initials, reload, PINTERM_SCORES, damaged-file quarantine
 	tests/deploy/deploy_test = deploy-web publishing against a throwaway repo: tree, no-op rerun, parent chain, untouched checkout
 	tests/integration/audio_test = PCM capture length/loudness and mute
