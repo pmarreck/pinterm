@@ -46,6 +46,7 @@ annotate=[
 	src/test_tea.roc = TEA against reference-C vectors; CTR round trips and keystream definition
 	src/web_main.roc = Browser app entry: Model = Loop.State; init/frame wrap the same Loop.frame
 	test = Complete test entry: parallel Roc suites, fmt, build-if-stale, parallel CLI/integration suites
+	tests/cli/build_args_test = ./build --target surface: documented targets, unknown/empty targets refused before building
 	tests/cli/cli_test = CLI option and error-path checks
 	tests/cli/glue_test = Checks tools/roc-glue isolates each roc glue run's cache (stub compiler) and that build scripts use it
 	tests/cli/launcher_test = bin/pinterm launcher checks
@@ -57,6 +58,9 @@ annotate=[
 	tests/integration/replay_test = Headless scripted replays to game over; determinism; kitty releases; ASCII sizes
 	tests/integration/score_file_test = Independent format check: printable-binary CLI decode, reference TEA-CTR decrypt, b3sum checksum; codec copies match the pin
 	tests/integration/terminal_test = Real pty cleanup after quit, signals and suspend/resume
+	tests/lib/reference_replay.sh = reference_replay BIN DIR: fixed seeded headless sessions whose outputs must match on every platform
+	tests/platform/differential_test = Requires PINTERM_BIN to reproduce the Linux reference replay byte for byte (log, frames, PCM)
+	tests/platform/suite = Platform check for non-Linux builds: binary-level suites + differential vs Linux reference (run by checks.aarch64-darwin.test)
 	tests/unit/audio_pull_test.c = C unit test of audio_pull against real pipes
 	tests/web/browser.mjs = Headless Chromium DevTools driver: real key events, event polling, screenshots
 	tests/web/glyphs.test.mjs = Unit tests for glyphs.js on a recording fake canvas: handled code-point set, seamless tiling across DPRs, ball shape geometry

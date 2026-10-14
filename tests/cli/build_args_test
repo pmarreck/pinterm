@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# ./build argument surface: --target names the platform to build for (native
+# by default), and unknown targets are refused before any compiling starts.
+set -u
+SUITE=build-args
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+
+capture "$root/build" --help
+check "help exits 0" [ "$rc" -eq 0 ]
+check "help documents --target" grep -q -- "--target" <<<"$out"
+for t in x86_64-linux aarch64-linux aarch64-macos; do
+	check "help lists target $t" grep -q -- "$t" <<<"$out"
+done
+
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-build-args.XXXXXX")"
+for t in x86_64-windows aarch64 macos ""; do
+	capture "$root/build" --target "$t" --out "$dir/out"
+	check "target '$t' rejected with usage status" [ "$rc" -eq 2 ]
+	check "target '$t' rejection names the target" grep -q "unknown target" <<<"$err"
+	check "target '$t' rejected before building" [ ! -e "$dir/out" ]
+done
+capture "$root/build" --target
+check "missing --target value rejected" [ "$rc" -eq 2 ]
+command rm -rf -- "$dir"
+finish

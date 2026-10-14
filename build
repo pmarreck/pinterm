@@ -1,34 +1,58 @@
 #!/usr/bin/env bash
 # Build the optimized native pinterm game: Roc core archive + C terminal/audio host.
-# Usage: ./build [--out DIR] [--debug] [--check-only]
+# Usage: ./build [--target TARGET] [--out DIR] [--debug] [--check-only]
+# TARGET: x86_64-linux, aarch64-linux or aarch64-macos (default: this machine).
 # Outputs: DIR/release/bin/pinterm (or DIR/debug/bin/pinterm with --debug).
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -z "${PINTERM_ROC:-}" ]; then
-	exec nix develop "$root" -c "$root/build" "$@"
-fi
-
-out="$root/out"
+usage_error() { echo "build: $*" >&2; exit 2; }
+target=""
+target_given=0
+out=""
 profile=release
 check_only=0
 while [ $# -gt 0 ]; do
 	case "$1" in
-		--out) out="$2"; shift 2 ;;
+		--target) [ $# -ge 2 ] || usage_error "--target needs a value"; target="$2"; target_given=1; shift 2 ;;
+		--out) [ $# -ge 2 ] || usage_error "--out needs a value"; out="$2"; shift 2 ;;
 		--debug) profile=debug; shift ;;
 		--test) shift ;; # tests use the same optimized artifact
 		--check-only) check_only=1; shift ;;
-		-h|--help) sed -n '2,4p' "$0"; exit 0 ;;
-		*) echo "build: unknown argument: $1" >&2; exit 2 ;;
+		-h|--help) sed -n '2,5p' "$0"; exit 0 ;;
+		*) usage_error "unknown argument: $1" ;;
 	esac
 done
 
-case "$(uname -s)/$(uname -m)" in
-	Linux/x86_64) roc_target=x64v1glibc; zig_target=x86_64-linux-musl ;;
-	Linux/aarch64) roc_target=arm64glibc; zig_target=aarch64-linux-musl ;;
-	*) echo "build: native Roc packaging is verified on Linux x86_64/aarch64 only" >&2; exit 1 ;;
+if [ "$target_given" = 0 ]; then
+	case "$(uname -s)/$(uname -m)" in
+		Linux/x86_64) target=x86_64-linux ;;
+		Linux/aarch64) target=aarch64-linux ;;
+		*) echo "build: Roc only builds on Linux; cross-build with --target aarch64-macos from a Linux machine" >&2; exit 1 ;;
+	esac
+	native=1
+else
+	native=0
+fi
+# Roc archive target, host object target, final link target, link flags.
+# Linux links statically against musl; macOS cannot link statically.
+case "$target" in
+	x86_64-linux) roc_target=x64v1glibc host_cc_target=x86_64-linux-gnu zig_target=x86_64-linux-musl link_static=-static ;;
+	aarch64-linux) roc_target=arm64glibc host_cc_target=aarch64-linux-gnu zig_target=aarch64-linux-musl link_static=-static ;;
+	aarch64-macos) roc_target=arm64mac host_cc_target=aarch64-macos zig_target=aarch64-macos link_static= ;;
+	*) usage_error "unknown target '$target' (expected x86_64-linux, aarch64-linux or aarch64-macos)" ;;
 esac
+arch="${target%%-*}" os="${target#*-}"
 
+if [ -z "${PINTERM_ROC:-}" ]; then
+	exec nix develop "$root" -c "$root/build" --target "$target" ${out:+--out "$out"} \
+		$([ "$profile" = debug ] && echo --debug) $([ "$check_only" = 1 ] && echo --check-only)
+fi
+
+# Native builds keep the historical out/ tree; cross builds get their own.
+default_out="$root/out"
+[ "$native" = 1 ] || default_out="$root/out/$target"
+[ -n "$out" ] || out="$default_out"
 # The Roc compiler spawns one worker per CPU unless bounded; keep it modest.
 jobs="${PINTERM_ROC_JOBS:-4}"
 mkdir -p "$out"
@@ -50,10 +74,6 @@ else
 fi
 warn="-Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE"
 
-case "$roc_target" in
-	x64v1glibc) host_cc_target=x86_64-linux-gnu ;;
-	arm64glibc) host_cc_target=aarch64-linux-gnu ;;
-esac
 # shellcheck disable=SC2086
 zig cc -target "$host_cc_target" -mcpu=baseline $warn $copt -fPIC -fvisibility=hidden \
 	-c "$work/platform/host.c" -o "$work/platform/host.o"
@@ -62,15 +82,15 @@ ar rcs "$work/platform/targets/$roc_target/libhost.a" "$work/platform/host.o"
 	--jobs="$jobs" --no-cache --output="$work/libpinterm.a"
 
 # shellcheck disable=SC2086
-zig cc -target "$zig_target" -mcpu=baseline $warn $copt -static \
+zig cc -target "$zig_target" -mcpu=baseline $warn $copt $link_static \
 	-I"$work/platform" -I"$root/host" \
 	"$root"/host/*.c "$work/libpinterm.a" -lm -o "$out/$profile/bin/pinterm"
 echo "built $out/$profile/bin/pinterm" >&2
 
-# Publish the host entrypoint (only for the default output tree, after success).
-if [ "$out" = "$root/out" ]; then
-	case "$(uname -m)" in x86_64) arch=x86_64 ;; aarch64) arch=aarch64 ;; esac
-	mkdir -p "$root/bin/linux/$arch"
-	ln -sfn "../../../out/$profile/bin/pinterm" "$root/bin/linux/$arch/pinterm"
-	echo "published bin/linux/$arch/pinterm -> out/$profile/bin/pinterm" >&2
+# Publish the platform entrypoint (only for the default output tree, after success).
+if [ "$out" = "$default_out" ]; then
+	mkdir -p "$root/bin/$os/$arch"
+	rel="${out#"$root/"}"
+	ln -sfn "../../../$rel/$profile/bin/pinterm" "$root/bin/$os/$arch/pinterm"
+	echo "published bin/$os/$arch/pinterm -> $rel/$profile/bin/pinterm" >&2
 fi

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Platform check for a build made for another OS: runs every suite that tests
+# the finished binary (CLI, replays, audio capture, score files, real
+# pseudo-terminal cleanup) plus the cross-platform differential against the
+# Linux reference replay. Suites that need the Roc compiler, zig or a browser
+# run in the Linux ./test, not here.
+# Usage: PINTERM_BIN=... PINTERM_REFERENCE=... tests/platform/suite
+set -u
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+: "${PINTERM_BIN:?}" "${PINTERM_REFERENCE:?}"
+export MUTE_DEBUG_STATUS=1 PINTERM_MUTE=1
+unset PINTERM_SCORES
+work="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-platform.XXXXXX")"
+export XDG_DATA_HOME="$work/xdg-data"
+failed=()
+for t in tests/cli/cli_test tests/cli/scores_test tests/integration/replay_test \
+	tests/integration/audio_test tests/integration/score_file_test \
+	tests/integration/terminal_test tests/platform/differential_test; do
+	printf '\033[36m==>\033[0m %s\n' "$t"
+	"$root/$t" || failed+=("$t")
+done
+command rm -rf -- "$work"
+if [ ${#failed[@]} -gt 0 ]; then
+	printf '\033[31mFAILED:\033[0m %s\n' "${failed[@]}"
+	exit 1
+fi
+printf '\033[32mall platform tests passed\033[0m (%s)\n' "$("$PINTERM_BIN" --about)"

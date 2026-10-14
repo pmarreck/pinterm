@@ -67,6 +67,34 @@
             mainProgram = "pinterm";
           };
         } // rocEnv);
+        # macOS arm64 build, cross-compiled here: the Roc compiler only builds on
+        # Linux. checks.aarch64-darwin.test runs it on a Mac.
+        pintermMacos = pkgs.stdenvNoCC.mkDerivation ({
+          pname = "pinterm-aarch64-macos";
+          version = "0.1.0";
+          inherit src;
+          nativeBuildInputs = buildTools ++ [ rocToolchain ];
+          buildPhase = ''
+            export HOME=$TMPDIR
+            export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
+            export ROC_CACHE_DIR=$TMPDIR/roc-cache
+            bash ./build --target aarch64-macos --out "$PWD/out"
+          '';
+          installPhase = ''
+            mkdir -p $out/bin $out/share/licenses/pinterm
+            install -m755 out/release/bin/pinterm $out/bin/pinterm
+            install -m644 LICENSE $out/share/licenses/pinterm/LICENSE
+            install -m644 ${rocToolchain.src}/LICENSE $out/share/licenses/pinterm/Roc-UPL
+          '';
+          dontFixup = true; # a Mach-O binary: nothing for the Linux fixup hooks to do
+          meta.description = "pinterm for macOS on Apple silicon";
+        } // rocEnv);
+        # The Linux build's replay of fixed sessions; every other platform's
+        # build must reproduce it byte for byte (tests/platform/differential_test).
+        replayReference = pkgs.runCommand "pinterm-replay-reference" { nativeBuildInputs = [ pkgs.gawk ]; } ''
+          source ${./tests/lib/reference_replay.sh}
+          reference_replay ${pinterm}/bin/pinterm $out
+        '';
         # Static browser build: Roc core as WebAssembly + ghostty-web renderer.
         web = pkgs.stdenvNoCC.mkDerivation ({
           pname = "pinterm-web";
@@ -89,9 +117,33 @@
           inherit pinterm;
           inherit web;
           roc = rocToolchain;
+          pinterm-aarch64-macos = pintermMacos;
+          replay-reference = replayReference;
         };
 
-        checks = pkgs.lib.optionalAttrs rocSupported {
+        checks = pkgs.lib.optionalAttrs (system == "aarch64-darwin") {
+          # The Linux-built macOS binary on a real Mac: every suite that tests the
+          # finished binary, plus the differential against the Linux replay.
+          test = pkgs.stdenvNoCC.mkDerivation {
+            pname = "pinterm-macos-test";
+            version = "0.1.0";
+            inherit src;
+            nativeBuildInputs = [ pkgs.bash pkgs.coreutils pkgs.gawk pkgs.gnugrep pkgs.gnused pkgs.diffutils pkgs.findutils pkgs.b3sum pkgs.ps pkgs.zig_0_16 printable-binary.packages.${system}.printableBinaryZig ];
+            PINTERM_BIN = "${self.packages.x86_64-linux.pinterm-aarch64-macos}/bin/pinterm";
+            PINTERM_REFERENCE = "${self.packages.x86_64-linux.replay-reference}";
+            PINTERM_PRINTABLE_BINARY_SRC = "${printable-binary}";
+            buildPhase = ''
+              export HOME=$TMPDIR
+              # script(1) comes from macOS itself (the Mac builder runs without the
+              # Nix sandbox). Not /bin/ps: it is setuid root and build users may not
+              # run it, hence pkgs.ps.
+              export PATH=$PATH:/usr/bin:/bin
+              patchShebangs tests
+              tests/platform/suite
+            '';
+            installPhase = "mkdir -p $out && echo passed > $out/result";
+          };
+        } // pkgs.lib.optionalAttrs rocSupported {
           build = pinterm;
           # The installed command can always find an audio player.
           player = pkgs.runCommand "pinterm-player-check" { } ''

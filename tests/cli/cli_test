@@ -16,7 +16,8 @@ check "-h matches --help" grep -q "Usage: pinterm" <<<"$out"
 
 capture "$bin" --about
 check "--about one line" [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ]
-check "--about names platform" grep -Eq "linux (x86_64|aarch64)" <<<"$out"
+case "$(uname -s)" in Darwin) host_os=macos ;; *) host_os=linux ;; esac
+check "--about names this platform ($host_os)" grep -Eq "$host_os (x86_64|aarch64)" <<<"$out"
 
 capture "$bin" --bogus
 check "unknown option exits 2" [ "$rc" -eq 2 ]

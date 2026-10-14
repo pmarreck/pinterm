@@ -6,10 +6,20 @@ SUITE=terminal
 . "$(dirname "$0")/../lib/harness.sh"
 bin="${PINTERM_BIN:?}"
 if ! command -v script >/dev/null; then
-	fail "util-linux script(1) unavailable; cannot test terminal cleanup"
+	fail "script(1) unavailable; cannot test terminal cleanup"
 	finish; exit 1
 fi
 dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-tty.XXXXXX")"
+# pty_run LOG CMD...: run CMD in a new pseudo-terminal, recording its output.
+# util-linux script(1) takes the command as a string (-c); BSD and macOS
+# script(1) take it as trailing arguments.
+if script --version 2>&1 | grep -q util-linux; then
+	pty_run() { local log="$1"; shift; script -qec "$(printf "%q " "$@")" "$log"; }
+else
+	# macOS script(1) rejects a FIFO on stdin (tcgetattr fails), so feed it a pipe.
+	pty_run() { local log="$1"; shift; cat | script -q "$log" "$@"; }
+fi
+export -f pty_run # timeout(1) runs it in a child bash
 
 # Inner driver runs inside the pty. It records stty state before/after and the
 # exit status; waits poll for observable state changes with a bounded budget.
@@ -47,7 +57,7 @@ run_case() { # run_case mode expected_rc
 	local mode="$1" want="$2" log="$dir/$1.out"
 	command rm -f -- "$dir/rc" "$dir/note" "$dir/before" "$dir/after" "$dir/while_stopped" "$dir/ready" "$dir/keys"
 	mkfifo "$dir/keys"
-	timeout 30 script -qec "bash '$dir/driver' '$bin' $mode '$dir'" "$log" >/dev/null 2>&1 <"$dir/keys" &
+	timeout 30 bash -c 'pty_run "$@"' _ "$log" bash "$dir/driver" "$bin" "$mode" "$dir" >/dev/null 2>&1 <"$dir/keys" &
 	local spid=$!
 	exec 3>"$dir/keys"
 	if [ "$mode" = quitkey ]; then
@@ -55,8 +65,9 @@ run_case() { # run_case mode expected_rc
 		while [ ! -e "$dir/ready" ] && [ $n -lt 500 ]; do n=$((n + 1)); sleep 0.01; done
 		printf q >&3
 	fi
-	wait "$spid"
+	# End of input: BSD script(1) waits for it even after the session exits.
 	exec 3>&-
+	wait "$spid"
 	check "$mode: exit status $(cat "$dir/rc" 2>/dev/null) == $want" [ "$(cat "$dir/rc" 2>/dev/null)" = "$want" ]
 	check "$mode: no driver anomalies ($(cat "$dir/note" 2>/dev/null))" [ ! -s "$dir/note" ]
 	check "$mode: termios restored" cmp -s "$dir/before" "$dir/after"

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Cross-platform differential: this platform's build must reproduce the Linux
+# reference replay byte for byte (event log, frames, audio). The game core is
+# deterministic from its seed and inputs, so any difference is a porting bug.
+# Needs PINTERM_BIN and PINTERM_REFERENCE (a reference_replay output directory).
+set -u
+SUITE=differential
+. "$(dirname "$0")/../lib/harness.sh"
+. "$(dirname "$0")/../lib/reference_replay.sh"
+bin="${PINTERM_BIN:?}"
+ref="${PINTERM_REFERENCE:?set PINTERM_REFERENCE to a reference_replay directory}"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-differential.XXXXXX")"
+
+capture reference_replay "$bin" "$dir"
+check "replay runs" [ "$rc" -eq 0 ]
+check "replay is quiet" [ -z "$err" ]
+for f in session game.log game.frames game.pcm color256.frames ascii.frames; do
+	check "reference has $f" [ -s "$ref/$f" ]
+	capture cmp "$ref/$f" "$dir/$f"
+	check "$f identical to reference${out:+ ($out)}${err:+ ($err)}" [ "$rc" -eq 0 ]
+done
+command rm -rf -- "$dir"
+finish

@@ -22,6 +22,10 @@ With [Nix](https://nixos.org/) (flakes enabled):
 ./bin/pinterm    # play (builds first if needed)
 ```
 
+The Roc compiler builds only on Linux, so the macOS binary is cross-compiled
+there: `./build --target aarch64-macos` writes `out/aarch64-macos/release/bin/pinterm`
+(copy it to the Mac).
+
 or `nix run github:pmarreck/pinterm`.
 
 ### In a browser
@@ -170,7 +174,8 @@ replay options used by the tests.
 | Web browser (WebAssembly) | built and tested in headless Chromium; identical frames to the terminal build |
 | Linux x86_64 | built and tested (static musl binary) |
 | Linux aarch64 | build script supports it; not yet verified |
-| macOS aarch64 / x86_64 | cross-compiled from Linux (`arm64mac` and `x64mac` Roc targets); headless runs verified on Apple Silicon and under Rosetta. `./build` does not build it yet, and building on a Mac waits on the pinned Roc compiler's Nix package, which is marked broken on Darwin |
+| macOS aarch64 | cross-compiled from Linux with `./build --target aarch64-macos`; CI runs the binary-level tests on an Apple Silicon Mac and requires its replays to match the Linux build byte for byte. Building on a Mac waits on the pinned Roc compiler's Nix package, which is marked broken on Darwin |
+| macOS x86_64 | the `x64mac` Roc target links and headless runs work under Rosetta; not built by `./build` or CI |
 | Windows x86_64 / aarch64 | not yet supported: the terminal host is POSIX-only |
 
 ## How it works
@@ -245,8 +250,12 @@ in headless Chromium and plays it with real keyboard events.
   headless Chromium session driven by real keyboard events.
 
 Continuous integration runs on Mechatron Prime CI, a self-hosted Nix build
-service that builds `packages.x86_64-linux.default`,
-`packages.x86_64-linux.web` and `checks.x86_64-linux.test` for every push.
+service. For every push it builds the Linux and web packages, runs `./test`
+(`checks.x86_64-linux.test`), and runs `tests/platform/suite` on a Mac against
+the cross-compiled macOS binary (`checks.aarch64-darwin.test`). That suite
+runs every test of the finished binary, including the pseudo-terminal
+sessions, and a differential that requires the macOS build to reproduce the
+Linux build's event log, frames and audio exactly.
 
 The tests check that the game works. Whether it is fun to play and the sound
 is pleasant still takes a human player.
