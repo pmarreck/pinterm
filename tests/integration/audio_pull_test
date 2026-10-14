@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Builds and runs the C unit test for host/audio_pull.c, the pipe reader that
+# feeds in-process audio callbacks (CoreAudio on macOS).
+set -u
+SUITE=audio-pull
+. "$(dirname "$0")/../lib/harness.sh"
+root="$(cd "$(dirname "$0")/../.." && pwd)"
+dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-audio-pull.XXXXXX")"
+export ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$dir/zig-cache}" ZIG_LOCAL_CACHE_DIR="$dir/zig-local"
+
+capture zig cc -Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE -I"$root/host" \
+	"$root/tests/unit/audio_pull_test.c" "$root/host/audio_pull.c" -o "$dir/audio_pull_test"
+check "unit test builds" [ "$rc" -eq 0 ]
+check "unit test builds without diagnostics" [ -z "$err" ]
+capture "$dir/audio_pull_test"
+check "unit test passes" [ "$rc" -eq 0 ]
+check "unit test reports no failures" grep -q "^0 failures$" <<<"$out"
+[ "$rc" -eq 0 ] || printf '%s\n' "$out" | grep FAIL >&2
+
+command rm -rf -- "$dir"
+finish

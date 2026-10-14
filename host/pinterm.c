@@ -1,8 +1,9 @@
 /* pinterm native frontend: CLI parsing, terminal raw mode with guaranteed
  * restoration, frame pacing, nonblocking input, and streamed PCM audio through
- * an external player process. All game decisions live in the Roc core; this
+ * an external player process (CoreAudio in-process on macOS). All game decisions live in the Roc core; this
  * adapter only moves bytes and keeps time. */
 #include "pinterm_host.h"
+#include "audio_coreaudio.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -67,6 +68,7 @@ static struct {
 	FILE *log;
 	int audio_fd;
 	pid_t audio_pid;
+	bool audio_coreaudio; /* audio_fd feeds the in-process CoreAudio queue */
 	uint64_t frame;
 	uint64_t now_us;
 	struct timespec deadline;
@@ -126,6 +128,10 @@ static void audio_close(void) {
 	if (st.audio_fd >= 0) {
 		close(st.audio_fd);
 		st.audio_fd = -1;
+	}
+	if (st.audio_coreaudio) {
+		coreaudio_stop();
+		st.audio_coreaudio = false;
 	}
 	if (st.audio_pid > 0) {
 		/* Give the player a moment to drain, then insist. */
@@ -235,6 +241,22 @@ static void audio_open(void) {
 		st.audio_fd = fd;
 		return;
 	}
+#if defined(__APPLE__)
+	int ca_fds[2];
+	if (pipe(ca_fds) == 0) {
+		for (int i = 0; i < 2; i++) {
+			fcntl(ca_fds[i], F_SETFD, FD_CLOEXEC);
+			fcntl(ca_fds[i], F_SETFL, O_NONBLOCK);
+		}
+		if (coreaudio_start(ca_fds[0], SAMPLE_RATE) == 0) {
+			st.audio_fd = ca_fds[1];
+			st.audio_coreaudio = true;
+			return;
+		}
+		close(ca_fds[0]);
+		close(ca_fds[1]);
+	}
+#endif
 	static char *pw[] = {"pw-play", "--rate=22050", "--channels=1", "--format=s16", "--latency=40ms", "-", NULL};
 	static char *pa[] = {"paplay", "--raw", "--rate=22050", "--channels=1", "--format=s16le", "--latency-msec=40", NULL};
 	static char *al[] = {"aplay", "-q", "-t", "raw", "-f", "S16_LE", "-r", "22050", "-c", "1", "--buffer-time=60000", NULL};

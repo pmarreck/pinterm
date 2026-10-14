@@ -156,8 +156,9 @@ replay options used by the tests.
   streamed to the first player found: `pw-play` (PipeWire), `paplay`
   (PulseAudio) or `aplay` (ALSA). The Nix package also brings its own
   `paplay` as a last resort, so systems that run a PulseAudio server without
-  client tools (such as WSLg on Windows) still get sound. With no player and
-  no server, the game is silent.
+  client tools (such as WSLg on Windows) still get sound. On macOS the host
+  plays through CoreAudio instead, in-process. With no player and no server,
+  the game is silent.
   pinterm never changes system audio settings.
 - **Cleanup.** The terminal is restored after a normal quit, Ctrl-C, SIGTERM,
   a crash signal, or suspend.
@@ -169,13 +170,14 @@ replay options used by the tests.
 | Web browser (WebAssembly) | built and tested in headless Chromium; identical frames to the terminal build |
 | Linux x86_64 | built and tested (static musl binary) |
 | Linux aarch64 | build script supports it; not yet verified |
-| macOS aarch64 | not yet supported: the pinned Roc compiler's Nix package is marked broken on Darwin |
+| macOS aarch64 / x86_64 | cross-compiled from Linux (`arm64mac` and `x64mac` Roc targets); headless runs verified on Apple Silicon and under Rosetta. `./build` does not build it yet, and building on a Mac waits on the pinned Roc compiler's Nix package, which is marked broken on Darwin |
 | Windows x86_64 / aarch64 | not yet supported: the terminal host is POSIX-only |
 
 ## How it works
 
 ```text
 host/pinterm.c        terminal raw mode, frame clock, input bytes, audio player pipe
+host/audio_*.c        macOS CoreAudio queue fed from that pipe
    │  ▲  (tick packet: clock, size, flags, raw input bytes)
    ▼  │  (frame bytes, PCM samples, event log lines)
 platform/             Roc platform: hosted functions and allocator shim

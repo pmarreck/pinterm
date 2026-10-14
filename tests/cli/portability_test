@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The terminal host compiles for macOS (arm64 and x86_64) with the same
+# Every terminal host source compiles for macOS (arm64 and x86_64) with the same
 # warnings-as-errors flags as the Linux build, and names the OS it was built
 # for in --about. Cross-compiling with zig cc needs no Mac, and catches
 # Linux-only calls (pipe2, F_SETPIPE_SZ, clock_nanosleep) before a Mac build
@@ -12,12 +12,16 @@ dir="$(mktemp -d "${TMPDIR:-/tmp}/pinterm-portability.XXXXXX")"
 export ZIG_GLOBAL_CACHE_DIR="${ZIG_GLOBAL_CACHE_DIR:-$dir/zig-cache}" ZIG_LOCAL_CACHE_DIR="$dir/zig-local"
 
 for target in aarch64-macos x86_64-macos; do
-	obj="$dir/host-$target.o"
-	capture zig cc -target "$target" -Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE \
-		-I"$root/platform" -c "$root/host/pinterm.c" -o "$obj"
-	check "host compiles for $target" [ "$rc" -eq 0 ]
-	check "host compiles for $target without diagnostics" [ -z "$err" ]
-	check "$target --about names macos" grep -aq "macos" "$obj"
+	for src in "$root"/host/*.c; do
+		name="$(basename "$src" .c)"
+		capture zig cc -target "$target" -Wall -Wextra -Werror -std=c11 -D_GNU_SOURCE \
+			-I"$root/platform" -c "$src" -o "$dir/$name-$target.o"
+		check "host/$name.c compiles for $target" [ "$rc" -eq 0 ]
+		check "host/$name.c compiles for $target without diagnostics" [ -z "$err" ]
+	done
+	check "$target --about names macos" grep -aq "macos" "$dir/pinterm-$target.o"
+	# The macOS object carries the real CoreAudio backend, not the stub.
+	check "$target audio uses CoreAudio's AudioQueue" grep -aq "AudioQueueNewOutput" "$dir/audio_coreaudio-$target.o"
 done
 
 # Every host target has a matching Roc target in the platform header.
